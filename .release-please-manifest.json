@@ -1,0 +1,38 @@
+{
+  "packages": {
+    "pkg/wasic": {
+      "release-type": "rust",
+      "package-name": "wasic",
+      "extra-files": [
+        "pkg/wasic/Cargo.toml",
+        "pkg/wasic/Cargo.lock"
+      ]
+    }
+  },
+  "changelog-sections": [
+    {
+      "type": "feat",
+      "section": "Features"
+    },
+    {
+      "type": "fix",
+      "section": "Bug Fixes"
+    },
+    {
+      "type": "chore",
+      "section": "Other Changes"
+    },
+    {
+      "type": "docs",
+      "section": "Documentation"
+    },
+    {
+      "type": "refactor",
+      "section": "Code Refactoring"
+    },
+    {
+      "type": "test",
+      "section": "Tests"
+    }
+  ]
+}

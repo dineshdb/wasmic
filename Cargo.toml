@@ -1,0 +1,40 @@
+[package]
+name = "wasic"
+version = "0.1.0"
+edition = "2024"
+description = "A CLI tool for managing WASI components and running them as MCP servers"
+authors = ["Dinesh Bhattarai <dineshdb@dbhattarai.info.np>"]
+license = "MIT"
+repository = "https://github.com/dineshdb/wasic"
+homepage = "https://github.com/dineshdb/wasic"
+documentation = "https://github.com/dineshdb/wasic#readme"
+keywords = ["wasi", "wasm", "mcp", "cli", "components"]
+categories = ["command-line-utilities", "development-tools", "wasm"]
+readme = "README.md"
+
+[dependencies]
+axum = { version = "0.8", features = ["http2", "ws"] }
+clap = { version = "4.0", features = ["derive"] }
+dirs = "6.0"
+dotenvy = "0.15"
+futures = "0.3"
+oci-distribution = "0.11"
+rmcp = { version = "0.7.0", features = ["server", "transport-io", "transport-streamable-http-server"] }
+schemars = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+thiserror = "2.0"
+tokio = { version = "1.0", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+wasmtime = "37.0"
+wasmtime-wasi = "37.0"
+wasmtime-wasi-http = "37.0"
+
+[profile.release]
+codegen-units = 1
+opt-level = "s"
+debug = false
+strip = true
+lto = true

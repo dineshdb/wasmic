@@ -1,0 +1,9 @@
+profiles:
+  default:
+    components:
+      time:
+        oci: ghcr.io/dineshdb/wasic-time:latest
+        config:
+          timezone: "UTC"
+      fetch:
+        oci: ghcr.io/dineshdb/wasic-fetch:latest
