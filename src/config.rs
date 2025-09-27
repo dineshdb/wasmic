@@ -8,6 +8,9 @@ use std::path::PathBuf;
 pub struct Config {
     /// Profile definitions
     pub profiles: HashMap<String, Profile>,
+
+    /// Currently active profile name
+    pub profile: Option<String>,
 }
 
 /// Profile configuration containing multiple WASM components
@@ -15,6 +18,21 @@ pub struct Config {
 pub struct Profile {
     /// Map of component names to their configurations
     pub components: HashMap<String, ComponentConfig>,
+    /// Optional description of the profile
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Volume mount configuration for WASI filesystem access
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VolumeMount {
+    /// Host path to mount (absolute path)
+    pub host_path: String,
+    /// Guest path where the volume will be mounted inside WASI
+    pub guest_path: String,
+    /// Whether the mount should be read-only (default: false)
+    #[serde(default)]
+    pub read_only: bool,
 }
 
 /// Individual component configuration
@@ -28,6 +46,15 @@ pub struct ComponentConfig {
     pub oci: Option<String>,
     /// Optional configuration data for the component
     pub config: Option<serde_json::Value>,
+    /// Volume mounts for filesystem access
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub volumes: Vec<VolumeMount>,
+    /// Current working directory for the component
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    /// Optional description of the component
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 impl Config {
@@ -54,10 +81,5 @@ impl Config {
         }
 
         Ok(config)
-    }
-
-    /// Get a specific profile by name
-    pub fn get_profile(&self, name: &str) -> Option<&Profile> {
-        self.profiles.get(name)
     }
 }

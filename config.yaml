@@ -2,8 +2,21 @@ profiles:
   default:
     components:
       time:
-        oci: ghcr.io/dineshdb/wasic-components/time:v0.1.0
+        description: "time-related functions including timezone conversion and timestamp generation"
+        oci: ghcr.io/dineshdb/wasi-components/time:v0.1.0
         config:
           timezone: "UTC"
       fetch:
-        oci: ghcr.io/dineshdb/wasic-components/fetch:v0.1.0
+        description: "making web requests and fetching remote resources"
+        oci: ghcr.io/dineshdb/wasi-components/fetch:v0.1.0
+      context7:
+        description: "Resolving dependencies and libraries id"
+        oci: ghcr.io/dineshdb/wasi-components/context7:v0.1.0
+      fs:
+        description: "file and directory operations"
+        oci: ghcr.io/dineshdb/wasi-components/filesystem:v0.1.0
+        cwd: /Users/dineshbhattarai/src/
+        volumes:
+          - host_path: "/tmp"
+            guest_path: "/tmp"
+            read_only: false

@@ -226,8 +226,8 @@ impl WasmComponent {
         Ok((interfaces, functions))
     }
 
-    /// Get all tools from the component with optimized processing
-    pub fn get_tools(&self) -> Result<Vec<Tool>> {
+    /// Get all tools from the component with component description included
+    pub fn get_tools(&self, component_description: Option<&str>) -> Result<Vec<Tool>> {
         let mut tools = Vec::new();
         let ty = self.component.component_type();
 
@@ -242,6 +242,7 @@ impl WasmComponent {
                     &func.params,
                     &func.results,
                     None, // No interface name for top-level functions
+                    component_description,
                 ));
             }
 
@@ -253,6 +254,7 @@ impl WasmComponent {
                         &func_info.params,
                         &func_info.results,
                         Some(&interface.name),
+                        component_description,
                     ));
                 }
             }
@@ -317,14 +319,24 @@ impl WasmComponent {
         params: &Vec<ParameterInfo>,
         results: &[String],
         interface_name: Option<&str>,
+        component_description: Option<&str>,
     ) -> Tool {
         let tool_name = function_name.to_string();
-        let description = if let Some(iface_name) = interface_name {
+
+        // Build the base description
+        let base_description = if let Some(iface_name) = interface_name {
             format!(
                 "Function {function_name} from interface {iface_name} with params: {params:?}, results: {results:?}",
             )
         } else {
             format!("Function {function_name} with params: {params:?}, results: {results:?}",)
+        };
+
+        // Add component description if available
+        let description = if let Some(comp_desc) = component_description {
+            format!("{}\n\nComponent: {}", base_description, comp_desc)
+        } else {
+            base_description
         };
 
         // Create input schema based on function parameters with proper JSON schema types

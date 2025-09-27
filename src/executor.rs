@@ -1,5 +1,6 @@
+use crate::config::ComponentConfig;
 use crate::error::{Result, WasiMcpError};
-use crate::linker::create_default_wasi_context;
+use crate::linker::create_wasi_context_with_volume_mounts;
 use crate::state::ComponentRunStates;
 use crate::wasm::{WasmComponent, WasmToolResult};
 use std::collections::HashMap;
@@ -12,12 +13,13 @@ use wasmtime::*;
 pub struct WasmExecutor {
     engine: Arc<Engine>,
     components: HashMap<String, Arc<WasmComponent>>,
+    profile: crate::config::Profile,
     linker: Arc<wasmtime::component::Linker<ComponentRunStates>>,
 }
 
 impl WasmExecutor {
     /// Create a new UnifiedExecutor with a shared engine and global linker
-    pub fn new(engine: Arc<Engine>) -> Result<Self> {
+    pub fn new(engine: Arc<Engine>, profile: crate::config::Profile) -> Result<Self> {
         let mut linker = wasmtime::component::Linker::new(&engine);
         wasmtime_wasi::p2::add_to_linker_async(&mut linker).map_err(|e| {
             WasiMcpError::Execution(format!("Failed to add WASI preview2 imports: {e}"))
@@ -30,6 +32,7 @@ impl WasmExecutor {
         Ok(Self {
             engine: engine.clone(),
             components: HashMap::new(),
+            profile,
             linker: Arc::new(linker),
         })
     }
@@ -47,12 +50,20 @@ impl WasmExecutor {
         Ok(())
     }
 
+    /// Get component configuration for a specific component
+    fn get_component_config(&self, component_name: &str) -> Option<&ComponentConfig> {
+        self.profile.components.get(component_name)
+    }
+
     /// Get all tools from all components
     pub fn get_all_tools(&self) -> Result<Vec<rmcp::model::Tool>> {
         let mut all_tools = Vec::new();
 
         for (component_name, component) in &self.components {
-            let mut tools = component.get_tools()?;
+            let component_config = self.get_component_config(component_name);
+            let component_description =
+                component_config.and_then(|config| config.description.as_deref());
+            let mut tools = component.get_tools(component_description)?;
 
             // Prefix tool names with component name to avoid conflicts
             for tool in &mut tools {
@@ -71,7 +82,10 @@ impl WasmExecutor {
             .get(component_name)
             .ok_or_else(|| WasiMcpError::ComponentNotFound(component_name.to_string()))
             .and_then(|component| {
-                let mut tools = component.get_tools()?;
+                let component_config = self.get_component_config(component_name);
+                let component_description =
+                    component_config.and_then(|config| config.description.as_deref());
+                let mut tools = component.get_tools(component_description)?;
                 // Prefix tool names with component name
                 for tool in &mut tools {
                     tool.name = format!("{}.{}", component_name, tool.name).into();
@@ -173,11 +187,12 @@ impl WasmExecutor {
             .get_function_info(tool_name)
             .ok_or_else(|| WasiMcpError::FunctionNotFound(tool_name.to_string()))?;
 
-        // Map named arguments to positional arguments
         let positional_args = self.map_named_to_positional_arguments(function_info, arguments)?;
+        let component_config = self.get_component_config(&component.name);
+        let cwd = component_config.and_then(|config| config.cwd.as_deref());
+        let volumes = component_config.map(|config| &config.volumes);
 
-        // Create a new store for this execution with WASI context
-        let state = create_default_wasi_context()?;
+        let state = create_wasi_context_with_volume_mounts(volumes.unwrap_or(&Vec::new()), cwd)?;
         let mut store = Store::new(&self.engine, state);
 
         // Instantiate the component using the global linker asynchronously
@@ -207,7 +222,7 @@ impl WasmExecutor {
             Ok(result_string) => {
                 let tool_result = WasmToolResult {
                     tool_name: format!("{}.{}", component.name, tool_name),
-                    result: result_string,
+                    result: serde_json::to_string(&result_string)?,
                     status: "executed".to_string(),
                 };
                 tracing::info!(

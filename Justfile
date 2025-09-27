@@ -1,10 +1,13 @@
 
 # Installation (for development)
 install:
-	cargo install --path .
+	cargo install --path . -f
 	mkdir -p "~/.config/wasic/" || mkdir -p "~/Library/Application Support/wasic/"
-	cp config.yaml "~/.config/wasic/" 2>/dev/null || cp config.yaml "~/Library/Application Support/wasic/" 2>/dev/null
-
+	cp config.yaml "~/.config/wasic/" 2>/dev/null && cp config.yaml ~/Library/Application\ Support/wasic/ 2>/dev/null
+macOS:
+	cp etc/homebrew.mxcl.wasic.plist ~/Library/LaunchAgents/homebrew.mxcl.wasic.plist || true
+	launchctl load ~/Library/LaunchAgents/homebrew.mxcl.wasic.plist
+	launchctl start homebrew.mxcl.wasic
 # Development commands
 fmt:
 	cargo fmt --all
@@ -15,13 +18,12 @@ fmt-check:
 lint:
 	cargo clippy -- -D warnings
 	cargo test
-
-lint-all: lint
-	cargo sort
 	cargo machete
 
-lint-fix: lint
+lint-fix: fmt
 	cargo clippy --fix --allow-dirty --allow-staged
+	cargo sort
+	cargo machete --fix
 
 # CI tool installation (using cargo-binstall, minimal dependencies)
 install-tools:

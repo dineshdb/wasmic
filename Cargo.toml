@@ -12,6 +12,14 @@ keywords = ["wasi", "wasm", "mcp", "cli", "components"]
 categories = ["command-line-utilities", "development-tools", "wasm"]
 readme = "README.md"
 
+[lib]
+name = "wasic"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wasic"
+path = "src/main.rs"
+
 [dependencies]
 axum = { version = "0.8", features = ["http2", "ws"] }
 clap = { version = "4.0", features = ["derive"] }
@@ -31,6 +39,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 wasmtime = "37.0"
 wasmtime-wasi = "37.0"
 wasmtime-wasi-http = "37.0"
+
+[dev-dependencies]
+tempfile = "3.0"
 
 [profile.release]
 codegen-units = 1

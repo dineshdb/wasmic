@@ -1,4 +1,3 @@
 build
 **/target
-examples/
 .DS_Store

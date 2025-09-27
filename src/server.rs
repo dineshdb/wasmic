@@ -74,32 +74,21 @@ impl ServerManager {
     }
 
     /// Load all components from a profile configuration into an executor (parallel and async)
-    #[instrument(level = "info", skip(config_path, engine), fields(profile, components))]
-    async fn load_components(
-        config_path: &PathBuf,
-        profile: &str,
-        engine: Arc<Engine>,
-    ) -> Result<WasmExecutor> {
-        tracing::info!(profile, "Loading components");
+    #[instrument(level = "info", skip(profile, engine), fields(components))]
+    async fn load(profile: crate::config::Profile, engine: Arc<Engine>) -> Result<WasmExecutor> {
+        tracing::info!("Loading components");
 
-        let config = Config::from_file(config_path)?;
-        let profile_details = config.get_profile(profile).ok_or_else(|| {
-            crate::error::WasiMcpError::InvalidArguments(format!(
-                "Profile '{profile}' not found in configuration",
-            ))
-        })?;
-
-        if profile_details.components.is_empty() {
-            return Err(crate::error::WasiMcpError::InvalidArguments(format!(
-                "Profile '{profile}' has no components configured",
-            )));
+        if profile.components.is_empty() {
+            return Err(crate::error::WasiMcpError::InvalidArguments(
+                "Profile has no components configured".to_string(),
+            ));
         }
 
         let oci_manager = Arc::new(OciManager::new()?);
-        let mut executor = WasmExecutor::new(engine.clone())?;
+        let mut executor = WasmExecutor::new(engine.clone(), profile.clone())?;
 
         // Prepare component loading tasks for parallel execution
-        let component_load_tasks: Vec<_> = profile_details
+        let component_load_tasks: Vec<_> = profile
             .components
             .iter()
             .map(|(name, component_config)| {
@@ -163,91 +152,22 @@ impl ServerManager {
             executor.add_component(name, wasm_component)?;
         }
 
-        tracing::Span::current().record("components", profile_details.components.len());
-        tracing::info!(
-            profile,
-            components = profile_details.components.len(),
-            "Successfully loaded",
-        );
+        tracing::Span::current().record("components", profile.components.len());
+        tracing::info!(components = profile.components.len(), "Successfully loaded",);
 
         Ok(executor)
     }
 
-    /// Load a single component from a profile configuration into an executor
-    #[instrument(level = "info", skip(config_path, engine), fields(profile, component_name))]
-    async fn load_single_component(
-        config_path: &PathBuf,
-        profile: &str,
+    /// Create a profile with a single component for loading
+    fn create_single_component_profile(
+        profile: &crate::config::Profile,
         component_name: &str,
-        engine: Arc<Engine>,
-    ) -> Result<WasmExecutor> {
-        tracing::info!(profile, component_name, "Loading single component");
-
-        let config = Config::from_file(config_path)?;
-        let profile_details = config.get_profile(profile).ok_or_else(|| {
-            crate::error::WasiMcpError::InvalidArguments(format!(
-                "Profile '{profile}' not found in configuration",
-            ))
-        })?;
-
-        if profile_details.components.is_empty() {
-            return Err(crate::error::WasiMcpError::InvalidArguments(format!(
-                "Profile '{profile}' has no components configured",
-            )));
-        }
-
-        // Get the specific component configuration
-        let component_config = profile_details.components.get(component_name).ok_or_else(|| {
-            crate::error::WasiMcpError::InvalidArguments(format!(
-                "Component '{component_name}' not found in profile '{profile}'",
-            ))
-        })?;
-
-        let oci_manager = Arc::new(OciManager::new()?);
-        let mut executor = WasmExecutor::new(engine.clone())?;
-
-        // Reuse the component loading logic from load_components
-        let name = component_name.to_string();
-        let component_config = component_config.clone();
-        let engine_clone = engine.clone();
-
-        let source = if let Some(oci_ref) = &component_config.oci {
-            format!("OCI: {oci_ref}")
-        } else if let Some(path) = &component_config.path {
-            format!("local: {path}")
-        } else {
-            "unknown".to_string()
-        };
-
-        tracing::debug!(component_name = %name, source, "Loading component");
-
-        // Resolve the component reference (handle both local and OCI) - reused logic
-        let resolved_path = oci_manager
-            .resolve_component_reference(
-                component_config.path.as_deref(),
-                component_config.oci.as_deref(),
-            )
-            .await?;
-
-        // Create the WASM component - reused logic
-        let wasm_component = WasmComponent::new_with_engine(
-            name.clone(),
-            &resolved_path,
-            engine_clone,
-        )?;
-
-        tracing::debug!(component_name = %name, "Component loaded");
-
-        // Add the loaded component to the executor
-        executor.add_component(name, wasm_component)?;
-
-        tracing::info!(
-            profile,
-            component_name,
-            "Successfully loaded single component",
-        );
-
-        Ok(executor)
+    ) -> Result<crate::config::Profile> {
+        let mut single_component_profile = profile.clone();
+        single_component_profile
+            .components
+            .retain(|k, _| k == component_name);
+        Ok(single_component_profile)
     }
 
     /// Run multiple WASM components from a configuration file in a single MCP server
@@ -257,7 +177,14 @@ impl ServerManager {
         transport: McpTransport,
         engine: Arc<Engine>,
     ) -> Result<()> {
-        let executor = Self::load_components(&config_path, &profile, engine).await?;
+        let config = Config::from_file(&config_path)?;
+        let profile_data = config.profiles.get(&profile).ok_or_else(|| {
+            crate::error::WasiMcpError::InvalidArguments(format!(
+                "Profile '{}' not found in configuration",
+                profile
+            ))
+        })?;
+        let executor = Self::load(profile_data.clone(), engine).await?;
         let server = WasmMcpServer::new(executor);
 
         match transport {
@@ -301,15 +228,23 @@ impl ServerManager {
         tracing::debug!(parsed_args_count = %arguments.len(), "Arguments parsed");
 
         // Parse the function name to extract component name
-        let (component_name, _) = function.split_once('.')
-            .ok_or_else(|| {
-                crate::error::WasiMcpError::InvalidArguments(
-                    format!("Function name must be in format 'component.function', got: {function}"),
-                )
-            })?;
+        let (component_name, _) = function.split_once('.').ok_or_else(|| {
+            crate::error::WasiMcpError::InvalidArguments(format!(
+                "Function name must be in format 'component.function', got: {function}"
+            ))
+        })?;
 
         // Load only the specific component needed for this function call
-        let executor = Self::load_single_component(&config_path, &profile_name, component_name, engine).await?;
+        let config = Config::from_file(&config_path)?;
+        let profile_data = config.profiles.get(&profile_name).ok_or_else(|| {
+            crate::error::WasiMcpError::InvalidArguments(format!(
+                "Profile '{}' not found in configuration",
+                profile_name
+            ))
+        })?;
+        let single_component_profile =
+            Self::create_single_component_profile(profile_data, component_name)?;
+        let executor = Self::load(single_component_profile, engine).await?;
         let result = executor.execute_function(&function, arguments).await;
 
         match result {
@@ -343,7 +278,14 @@ impl ServerManager {
     ) -> Result<()> {
         tracing::info!(profile, "Listing functions",);
 
-        let executor = Self::load_components(&config_path, &profile, engine).await?;
+        let config = Config::from_file(&config_path)?;
+        let profile_data = config.profiles.get(&profile).ok_or_else(|| {
+            crate::error::WasiMcpError::InvalidArguments(format!(
+                "Profile '{}' not found in configuration",
+                profile
+            ))
+        })?;
+        let executor = Self::load(profile_data.clone(), engine).await?;
         let tools = executor.get_all_tools()?;
 
         tracing::Span::current().record("functions", tools.len());
