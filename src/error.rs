@@ -30,6 +30,9 @@ pub enum WasiMcpError {
 
     #[error("Invalid arguments: {0}")]
     InvalidArguments(String),
+
+    #[error("Expected {0}, got: {1}")]
+    UnexpectedExpected(String, String),
 }
 
 impl From<WasiMcpError> for rmcp::ErrorData {

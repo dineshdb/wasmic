@@ -2,6 +2,7 @@
 //!
 //! This library provides functionality for managing WASI components and running them as MCP servers.
 
+pub mod cli;
 pub mod config;
 pub mod error;
 pub mod executor;
@@ -10,6 +11,7 @@ pub mod mcp;
 pub mod oci;
 pub mod server;
 pub mod state;
+pub mod transform;
 pub mod wasm;
 
 // Re-export commonly used types

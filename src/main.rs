@@ -1,20 +1,11 @@
-mod cli;
-mod config;
-mod error;
-mod executor;
-mod linker;
-mod mcp;
-mod oci;
-mod server;
-mod state;
-mod wasm;
-
-use crate::cli::{Cli, Commands};
-use crate::config::Config;
-use crate::error::Result;
-use crate::server::{ServerManager, ServerMode};
 use clap::Parser;
 use std::sync::Arc;
+use tracing::error;
+use wasic::WasiMcpError;
+use wasic::cli::{Cli, Commands};
+use wasic::config::Config;
+use wasic::error::Result;
+use wasic::server::{ServerManager, ServerMode};
 use wasmtime::Engine;
 
 #[tokio::main]
@@ -44,7 +35,7 @@ async fn main() -> Result<()> {
         .profiles
         .get(&cli.profile)
         .ok_or_else(|| {
-            crate::error::WasiMcpError::InvalidArguments(format!(
+            WasiMcpError::InvalidArguments(format!(
                 "Profile '{}' not found in configuration",
                 cli.profile
             ))
@@ -62,8 +53,8 @@ async fn main() -> Result<()> {
                 };
                 let port_str = parts[1..].join(":");
                 let port = port_str.parse().map_err(|_| {
-                    tracing::error!("Error: Invalid port number in --http argument");
-                    crate::error::WasiMcpError::InvalidArguments(
+                    error!("Error: Invalid port number in --http argument");
+                    WasiMcpError::InvalidArguments(
                         "Invalid port number in --http argument".to_string(),
                     )
                 })?;
@@ -73,7 +64,7 @@ async fn main() -> Result<()> {
                 (http, 8080)
             };
 
-            tracing::info!(
+            tracing::debug!(
                 "MCP HTTP mode - profile: {:?}, host: {}, port: {}",
                 profile,
                 host,
@@ -81,7 +72,7 @@ async fn main() -> Result<()> {
             );
             ServerMode::Mcp {
                 profile,
-                transport: crate::server::McpTransport::Http { host, port },
+                transport: wasic::server::McpTransport::Http { host, port },
                 engine: engine.clone(),
             }
         }

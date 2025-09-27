@@ -1,6 +1,6 @@
 use crate::error::Result;
 use rmcp::model::Tool;
-use serde::Serialize;
+use serde_json::Value;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tracing::instrument;
 use wasmtime::{
@@ -24,10 +24,11 @@ pub struct InterfaceInfo {
 }
 
 /// Parameter information combining name, type, and position
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct ParameterInfo {
     pub name: String,
-    pub param_type: String,
+    pub param_json: serde_json::Value, // JSON schema for the type
+    pub wasm_type: wasmtime::component::Type, // WASM component type for conversion
     pub position: usize,
 }
 
@@ -36,7 +37,189 @@ pub struct ParameterInfo {
 pub struct FunctionInfo {
     pub name: String,
     pub params: Vec<ParameterInfo>, // Function parameters with position info
-    pub results: Vec<String>,       // Function return types/results
+    pub results: Vec<serde_json::Value>, // Function return types/results as JSON
+}
+
+/// Convert a wasmtime Type directly to JSON schema type
+fn convert_wasm_type_to_json(ty: &wasmtime::component::Type) -> serde_json::Value {
+    match ty {
+        wasmtime::component::Type::Bool => serde_json::json!("boolean"),
+        wasmtime::component::Type::Char | wasmtime::component::Type::String => {
+            serde_json::json!("string")
+        }
+        wasmtime::component::Type::S8
+        | wasmtime::component::Type::U8
+        | wasmtime::component::Type::S16
+        | wasmtime::component::Type::U16
+        | wasmtime::component::Type::S32
+        | wasmtime::component::Type::U32
+        | wasmtime::component::Type::S64
+        | wasmtime::component::Type::U64 => serde_json::json!("integer"),
+        wasmtime::component::Type::Float32 | wasmtime::component::Type::Float64 => {
+            serde_json::json!("number")
+        }
+        wasmtime::component::Type::List(list) => {
+            let element_type = convert_wasm_type_to_json(&list.ty());
+            serde_json::json!({
+                "type": "array",
+                "items": element_type
+            })
+        }
+        wasmtime::component::Type::Record(record) => {
+            let mut properties = serde_json::Map::new();
+            let mut required = Vec::new();
+
+            for field in record.fields() {
+                let field_type = convert_wasm_type_to_json(&field.ty);
+                properties.insert(field.name.to_string(), field_type);
+                required.push(field.name);
+            }
+
+            serde_json::json!({
+                "type": "object",
+                "properties": properties,
+                "required": required,
+                "additionalProperties": false
+            })
+        }
+        wasmtime::component::Type::Tuple(tuple) => {
+            let items: Vec<serde_json::Value> = tuple
+                .types()
+                .map(|t| convert_wasm_type_to_json(&t))
+                .collect();
+            serde_json::json!({
+                "type": "array",
+                "items": items,
+                "minItems": items.len(),
+                "maxItems": items.len()
+            })
+        }
+        wasmtime::component::Type::Variant(variant) => {
+            let cases: Vec<serde_json::Value> = variant
+                .cases()
+                .map(|case| {
+                    if let Some(ty) = case.ty {
+                        serde_json::json!({
+                            "type": "object",
+                            "properties": {
+                                case.name: convert_wasm_type_to_json(&ty)
+                            },
+                            "required": [case.name],
+                            "additionalProperties": false
+                        })
+                    } else {
+                        serde_json::json!({
+                            "const": case.name
+                        })
+                    }
+                })
+                .collect();
+
+            serde_json::json!({
+                "oneOf": cases
+            })
+        }
+        wasmtime::component::Type::Enum(enum_ty) => {
+            let names: Vec<&str> = enum_ty.names().collect();
+            serde_json::json!({
+                "type": "string",
+                "enum": names
+            })
+        }
+        wasmtime::component::Type::Option(option) => {
+            let inner_type = convert_wasm_type_to_json(&option.ty());
+            serde_json::json!({
+                "oneOf": [
+                    inner_type,
+                    { "type": "null" }
+                ]
+            })
+        }
+        wasmtime::component::Type::Result(result) => {
+            let ok_type = result.ok().map(|t| convert_wasm_type_to_json(&t));
+            let err_type = result.err().map(|t| convert_wasm_type_to_json(&t));
+
+            match (ok_type, err_type) {
+                (Some(ok), Some(err)) => {
+                    serde_json::json!({
+                        "oneOf": [
+                            { "type": "object", "properties": { "Ok": ok }, "required": ["Ok"] },
+                            { "type": "object", "properties": { "Err": err }, "required": ["Err"] }
+                        ]
+                    })
+                }
+                (Some(ok), None) => {
+                    serde_json::json!({
+                        "oneOf": [
+                            { "type": "object", "properties": { "Ok": ok }, "required": ["Ok"] },
+                            { "type": "null" }
+                        ]
+                    })
+                }
+                (None, Some(err)) => {
+                    serde_json::json!({
+                        "oneOf": [
+                            { "type": "null" },
+                            { "type": "object", "properties": { "Err": err }, "required": ["Err"] }
+                        ]
+                    })
+                }
+                (None, None) => {
+                    serde_json::json!({
+                        "oneOf": [
+                            { "type": "null" },
+                            { "type": "string" }
+                        ]
+                    })
+                }
+            }
+        }
+        wasmtime::component::Type::Flags(flags) => {
+            let names: Vec<&str> = flags.names().collect();
+            serde_json::json!({
+                "type": "array",
+                "items": {
+                    "type": "string",
+                    "enum": names
+                },
+                "uniqueItems": true
+            })
+        }
+        wasmtime::component::Type::Own(_resource) => serde_json::json!("string"),
+        wasmtime::component::Type::Borrow(_resource) => serde_json::json!("string"),
+        wasmtime::component::Type::Future(future) => {
+            if let Some(ty) = future.ty() {
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "pending": { "type": "boolean" },
+                        "value": convert_wasm_type_to_json(&ty)
+                    }
+                })
+            } else {
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "pending": { "type": "boolean" }
+                    }
+                })
+            }
+        }
+        wasmtime::component::Type::Stream(stream) => {
+            if let Some(ty) = stream.ty() {
+                serde_json::json!({
+                    "type": "array",
+                    "items": convert_wasm_type_to_json(&ty)
+                })
+            } else {
+                serde_json::json!({
+                    "type": "array",
+                    "items": { "type": "string" }
+                })
+            }
+        }
+        wasmtime::component::Type::ErrorContext => serde_json::json!("string"),
+    }
 }
 
 /// Recursively extract exports from a component item with optimized processing and reduced allocations
@@ -48,16 +231,21 @@ pub fn get_exports(engine: &Engine, path: &str, item: &ComponentItem) -> Compone
 
     match item {
         ComponentItem::ComponentFunc(f) => {
-            let results: Vec<String> = f.results().map(|t| format!("{t:?}")).collect();
+            let results: Vec<serde_json::Value> =
+                f.results().map(|t| convert_wasm_type_to_json(&t)).collect();
 
             // Create parameter info with position - optimized allocation
             let params: Vec<ParameterInfo> = f
                 .params()
                 .enumerate()
-                .map(|(position, (n, t))| ParameterInfo {
-                    name: n.to_string(),
-                    param_type: format!("{t:?}"),
-                    position,
+                .map(|(position, (n, t))| {
+                    let param_json = convert_wasm_type_to_json(&t);
+                    ParameterInfo {
+                        name: n.to_string(),
+                        param_json,
+                        wasm_type: t.clone(),
+                        position,
+                    }
                 })
                 .collect();
 
@@ -215,7 +403,6 @@ impl WasmComponent {
                     &func.name,
                     &func.params,
                     &func.results,
-                    None, // No interface name for top-level functions
                     component_description,
                 ));
             }
@@ -227,7 +414,6 @@ impl WasmComponent {
                         func_name,
                         &func_info.params,
                         &func_info.results,
-                        Some(&interface.name),
                         component_description,
                     ));
                 }
@@ -237,82 +423,15 @@ impl WasmComponent {
         Ok(tools)
     }
 
-    /// Map WASM component types to JSON schema types
-    fn map_wasm_type_to_json_type(wasm_type: &str) -> serde_json::Value {
-        match wasm_type {
-            // String types
-            t if t.contains("String") || t.contains("string") => serde_json::json!("string"),
-
-            // Integer types
-            t if t.contains("U8") || t.contains("u8") => serde_json::json!("integer"),
-            t if t.contains("U16") || t.contains("u16") => serde_json::json!("integer"),
-            t if t.contains("U32") || t.contains("u32") => serde_json::json!("integer"),
-            t if t.contains("U64") || t.contains("u64") => serde_json::json!("integer"),
-            t if t.contains("S8") || t.contains("s8") => serde_json::json!("integer"),
-            t if t.contains("S16") || t.contains("s16") => serde_json::json!("integer"),
-            t if t.contains("S32") || t.contains("s32") => serde_json::json!("integer"),
-            t if t.contains("S64") || t.contains("s64") => serde_json::json!("integer"),
-
-            // Float types
-            t if t.contains("F32") || t.contains("f32") => serde_json::json!("number"),
-            t if t.contains("F64") || t.contains("f64") => serde_json::json!("number"),
-
-            // Boolean types
-            t if t.contains("Bool") || t.contains("bool") => serde_json::json!("boolean"),
-
-            // List/Array types
-            t if t.contains("List") || t.contains("Vec") || t.contains("[]") => {
-                serde_json::json!("array")
-            }
-
-            // Option types (nullable)
-            t if t.contains("Option") => {
-                // Extract the inner type and make it nullable
-                let inner_type = t.replace("Option<", "").replace(">", "");
-                let mapped_type = Self::map_wasm_type_to_json_type(&inner_type);
-                serde_json::json!({
-                    "oneOf": [
-                        mapped_type,
-                        { "type": "null" }
-                    ]
-                })
-            }
-
-            // Record/Object types
-            t if t.contains("Record") || t.contains("Tuple") => serde_json::json!("object"),
-
-            // Default fallback for unknown types
-            _ => serde_json::json!("string"),
-        }
-    }
-
     /// Create a tool from function information with proper JSON schema generation
     fn create_tool_from_function(
         function_name: &str,
-        params: &Vec<ParameterInfo>,
-        results: &[String],
-        interface_name: Option<&str>,
+        params: &[ParameterInfo],
+        results: &[serde_json::Value],
         component_description: Option<&str>,
     ) -> Tool {
         let tool_name = function_name.to_string();
-
-        // Build the base description
-        let params_json = serde_json::to_string(&params).expect("json");
-        let results_json = serde_json::to_string(&results).expect("json");
-        let base_description = if let Some(iface_name) = interface_name {
-            format!(
-                "Function {function_name} from interface {iface_name} with params: {params_json}, results: {results_json}",
-            )
-        } else {
-            format!("Function {function_name} with params: {params_json}, results: {results_json}")
-        };
-
-        // Add component description if available
-        let description = if let Some(comp_desc) = component_description {
-            format!("{}\n\nComponent: {}", base_description, comp_desc)
-        } else {
-            base_description
-        };
+        let description = component_description.unwrap_or_default().to_string();
 
         // Create input schema based on function parameters with proper JSON schema types
         let input_schema = if params.is_empty() {
@@ -327,40 +446,14 @@ impl WasmComponent {
             let mut required = Vec::with_capacity(params.len());
 
             for param_info in params.iter() {
-                let json_type = Self::map_wasm_type_to_json_type(&param_info.param_type);
-
                 let mut param_schema = serde_json::Map::new();
-                param_schema.insert("type".to_string(), json_type);
-                param_schema.insert(
-                    "description".to_string(),
-                    serde_json::Value::String(format!(
-                        "Parameter: {} (position: {}, WASM type: {})",
-                        param_info.name, param_info.position, param_info.param_type
-                    )),
-                );
 
-                // Add additional constraints for numeric types
-                if param_info.param_type.contains("U8") {
-                    param_schema.insert("minimum".to_string(), serde_json::json!(0));
-                    param_schema.insert("maximum".to_string(), serde_json::json!(255));
-                } else if param_info.param_type.contains("U16") {
-                    param_schema.insert("minimum".to_string(), serde_json::json!(0));
-                    param_schema.insert("maximum".to_string(), serde_json::json!(65535));
-                } else if param_info.param_type.contains("U32") {
-                    param_schema.insert("minimum".to_string(), serde_json::json!(0));
-                    param_schema.insert(
-                        "maximum".to_string(),
-                        serde_json::Value::Number(serde_json::Number::from(4294967295u64)),
-                    );
-                } else if param_info.param_type.contains("S8") {
-                    param_schema.insert("minimum".to_string(), serde_json::json!(-128));
-                    param_schema.insert("maximum".to_string(), serde_json::json!(127));
-                } else if param_info.param_type.contains("S16") {
-                    param_schema.insert("minimum".to_string(), serde_json::json!(-32768));
-                    param_schema.insert("maximum".to_string(), serde_json::json!(32767));
-                } else if param_info.param_type.contains("S32") {
-                    param_schema.insert("minimum".to_string(), serde_json::json!(-2147483648));
-                    param_schema.insert("maximum".to_string(), serde_json::json!(2147483647));
+                // Use the JSON schema directly from param_json
+                if let Some(obj) = param_info.param_json.as_object() {
+                    param_schema.extend(obj.clone());
+                } else {
+                    // Fallback if it's not an object
+                    param_schema.insert("type".to_string(), param_info.param_json.clone());
                 }
 
                 properties.insert(
@@ -378,12 +471,38 @@ impl WasmComponent {
             })
         };
 
+        let output_schema = if results.is_empty() {
+            // Functions with no return value might still produce a success message
+            serde_json::json!({
+                "type": "string",
+                "description": "Execution status message"
+            })
+        } else {
+            // Multiple return values are returned as an object with positional keys
+            let mut properties = serde_json::Map::with_capacity(results.len());
+            for (i, result_type) in results.iter().enumerate() {
+                properties.insert(format!("result_{}", i + 1), result_type.clone());
+            }
+            serde_json::json!({
+                "type": "object",
+                "properties": properties,
+                "required": properties.keys().collect::<Vec<_>>(),
+                "additionalProperties": false
+            })
+        };
+
+        let mut properties = serde_json::Map::with_capacity(results.len());
+        for (i, result_type) in results.iter().enumerate() {
+            properties.insert(format!("result_{}", i + 1), result_type.clone());
+        }
         Tool {
             name: tool_name.into(),
             title: None,
             description: Some(description.into()),
             input_schema: Arc::new(input_schema.as_object().cloned().unwrap_or_default()),
-            output_schema: None,
+            output_schema: Some(Arc::new(
+                output_schema.as_object().cloned().unwrap_or_default(),
+            )),
             annotations: None,
             icons: None,
         }
@@ -407,6 +526,6 @@ impl WasmComponent {
 #[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct WasmToolResult {
     pub tool_name: String,
-    pub result: String,
+    pub result: Value,
     pub status: String,
 }
