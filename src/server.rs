@@ -1,12 +1,12 @@
+use crate::config::Profile;
 use crate::error::Result;
 use crate::executor::WasmExecutor;
 use crate::mcp::WasmMcpServer;
 use crate::oci::OciManager;
 use crate::wasm::WasmComponent;
-use crate::{config::Config, error::WasiMcpError};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::{debug, info, instrument};
 use wasmtime::Engine;
 
@@ -22,23 +22,20 @@ pub enum McpTransport {
 pub enum ServerMode {
     /// Run as MCP server
     Mcp {
-        config: PathBuf,
-        profile: String,
+        profile: Profile,
         transport: McpTransport,
         engine: Arc<Engine>,
     },
     /// Direct function call
     Call {
-        config: PathBuf,
-        profile: String,
+        profile: Profile,
         function: String,
         args: String,
         engine: Arc<Engine>,
     },
     /// List available functions
     List {
-        config: PathBuf,
-        profile: String,
+        profile: Profile,
         engine: Arc<Engine>,
     },
 }
@@ -51,28 +48,22 @@ impl ServerManager {
     pub async fn run(mode: ServerMode) -> Result<()> {
         match mode {
             ServerMode::Mcp {
-                config,
                 profile,
                 transport,
                 engine,
-            } => Self::run_mcp_server(config, profile, transport, engine).await,
+            } => Self::run_mcp_server(profile, transport, engine).await,
             ServerMode::Call {
-                config,
                 profile,
                 function,
                 args,
                 engine,
-            } => Self::execute_function_call(config, profile, function, args, engine).await,
-            ServerMode::List {
-                config,
-                profile,
-                engine,
-            } => Self::list_functions(config, profile, engine).await,
+            } => Self::execute_function_call(profile, function, args, engine).await,
+            ServerMode::List { profile, engine } => Self::list_functions(profile, engine).await,
         }
     }
 
     /// Load all components from a profile configuration into an executor (parallel and async)
-    #[instrument(level = "info", skip(profile, engine), fields(components))]
+    #[instrument(level = "debug", skip(profile, engine), fields(components, duratio_ms))]
     async fn load(profile: crate::config::Profile, engine: Arc<Engine>) -> Result<WasmExecutor> {
         if profile.components.is_empty() {
             return Err(crate::error::WasiMcpError::InvalidArguments(
@@ -84,7 +75,7 @@ impl ServerManager {
         let mut executor = WasmExecutor::new(engine.clone(), profile.clone())?;
 
         // Prepare component loading tasks for parallel execution
-        let component_load_tasks: Vec<_> = profile
+        let load_tasks: Vec<_> = profile
             .components
             .iter()
             .map(|(name, component_config)| {
@@ -94,16 +85,6 @@ impl ServerManager {
                 let engine = engine.clone();
 
                 async move {
-                    let source = if let Some(oci_ref) = &component_config.oci {
-                        format!("OCI: {oci_ref}")
-                    } else if let Some(path) = &component_config.path {
-                        format!("local: {path}")
-                    } else {
-                        return Err(WasiMcpError::InvalidArguments("unknown source".to_string()));
-                    };
-
-                    tracing::debug!(component= %name, source, "Loading component");
-
                     // Resolve the component reference (handle both local and OCI)
                     let resolved_path = oci_manager
                         .resolve_component_reference(
@@ -112,14 +93,11 @@ impl ServerManager {
                         )
                         .await?;
 
-                    // Create the WASM component
                     let wasm_component = WasmComponent::new_with_engine(
                         name.clone(),
                         &resolved_path,
                         engine.clone(),
                     )?;
-
-                    tracing::debug!(component = %name, "loaded");
                     Ok::<(String, WasmComponent), crate::error::WasiMcpError>((
                         name,
                         wasm_component,
@@ -128,9 +106,10 @@ impl ServerManager {
             })
             .collect();
 
+        let start_time = Instant::now();
         // Execute all component loading tasks in parallel with concurrency limit
         let loaded_components = futures::future::try_join_all(
-            component_load_tasks
+            load_tasks
                 .into_iter()
                 .map(|task| tokio::spawn(task))
                 .collect::<Vec<_>>(),
@@ -142,49 +121,27 @@ impl ServerManager {
         .into_iter()
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
-        // Add all loaded components to the executor in batch
         for (name, wasm_component) in loaded_components {
             executor.add_component(name, wasm_component)?;
         }
 
         tracing::Span::current().record("components", profile.components.len());
-        tracing::info!(components = profile.components.len(), "Successfully loaded",);
-
+        tracing::Span::current().record("duration_ms", start_time.elapsed().as_millis());
         Ok(executor)
-    }
-
-    /// Create a profile with a single component for loading
-    fn create_single_component_profile(
-        profile: &crate::config::Profile,
-        component_name: &str,
-    ) -> Result<crate::config::Profile> {
-        let mut single_component_profile = profile.clone();
-        single_component_profile
-            .components
-            .retain(|k, _| k == component_name);
-        Ok(single_component_profile)
     }
 
     /// Run multiple WASM components from a configuration file in a single MCP server
     async fn run_mcp_server(
-        config_path: PathBuf,
-        profile: String,
+        profile: Profile,
         transport: McpTransport,
         engine: Arc<Engine>,
     ) -> Result<()> {
-        let config = Config::from_file(&config_path)?;
-        let profile_data = config.profiles.get(&profile).ok_or_else(|| {
-            crate::error::WasiMcpError::InvalidArguments(format!(
-                "Profile '{}' not found in configuration",
-                profile
-            ))
-        })?;
-        let executor = Self::load(profile_data.clone(), engine).await?;
+        let executor = Self::load(profile, engine).await?;
         let server = WasmMcpServer::new(executor);
 
         match transport {
             McpTransport::Http { host, port } => {
-                tracing::info!(profile, host, port, "Starting MCP HTTP server",);
+                tracing::info!(host, port, "Starting MCP HTTP server",);
                 WasmMcpServer::serve_http(server, host, port).await?;
             }
         }
@@ -192,19 +149,14 @@ impl ServerManager {
     }
 
     /// Execute a direct function call using a configuration profile
-    #[instrument(
-        level = "info",
-        skip(config_path, engine),
-        fields(profile_name, function_name, args)
-    )]
+    #[instrument(level = "debug", skip(engine, profile), fields(function_name, args))]
     async fn execute_function_call(
-        config_path: PathBuf,
-        profile_name: String,
+        profile: Profile,
         function: String,
         args: String,
         engine: Arc<Engine>,
     ) -> Result<()> {
-        tracing::info!(profile_name, function_name = %function, args, "Executing function call: {} for profile: {}", function, profile_name);
+        tracing::info!(function, args, "Executing function");
 
         // Parse arguments as named arguments (JSON object)
         let arguments: HashMap<String, serde_json::Value> = serde_json::from_str(&args)
@@ -225,17 +177,9 @@ impl ServerManager {
             ))
         })?;
 
-        // Load only the specific component needed for this function call
-        let config = Config::from_file(&config_path)?;
-        let profile_data = config.profiles.get(&profile_name).ok_or_else(|| {
-            crate::error::WasiMcpError::InvalidArguments(format!(
-                "Profile '{}' not found in configuration",
-                profile_name
-            ))
-        })?;
-        let single_component_profile =
-            Self::create_single_component_profile(profile_data, component_name)?;
-        let executor = Self::load(single_component_profile, engine).await?;
+        let mut profile = profile.clone();
+        profile.components.retain(|k, _| k == component_name);
+        let executor = Self::load(profile, engine).await?;
         let result = executor.execute_function(&function, arguments).await;
 
         match result {
@@ -259,30 +203,16 @@ impl ServerManager {
     /// List available functions from all components in a configuration file
     #[instrument(
         level = "info",
-        skip(config_path, engine),
+        skip(engine),
         fields(profile_name, functions, components)
     )]
-    async fn list_functions(
-        config_path: PathBuf,
-        profile: String,
-        engine: Arc<Engine>,
-    ) -> Result<()> {
-        tracing::info!(profile, "Listing functions",);
-
-        let config = Config::from_file(&config_path)?;
-        let profile_data = config.profiles.get(&profile).ok_or_else(|| {
-            crate::error::WasiMcpError::InvalidArguments(format!(
-                "Profile '{}' not found in configuration",
-                profile
-            ))
-        })?;
-        let executor = Self::load(profile_data.clone(), engine).await?;
+    async fn list_functions(profile: Profile, engine: Arc<Engine>) -> Result<()> {
+        let executor = Self::load(profile.clone(), engine).await?;
         let tools = executor.get_all_tools()?;
 
         tracing::Span::current().record("functions", tools.len());
         tracing::Span::current().record("components", executor.list_components().len());
 
-        info!(profile, "All functions:",);
         for tool in &tools {
             info!(
                 "  - {}: {}",

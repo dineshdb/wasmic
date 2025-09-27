@@ -1,6 +1,8 @@
 use crate::error::Result;
 use rmcp::model::Tool;
+use serde::Serialize;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use tracing::instrument;
 use wasmtime::{
     Engine,
     component::{Component, types::ComponentItem},
@@ -22,7 +24,7 @@ pub struct InterfaceInfo {
 }
 
 /// Parameter information combining name, type, and position
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ParameterInfo {
     pub name: String,
     pub param_type: String,
@@ -142,28 +144,14 @@ pub struct WasmComponent {
 
 impl WasmComponent {
     /// Create a new WASM component from file path with shared engine (optimized)
+    #[instrument(level = "debug", skip(engine, wasm_path), fields(name, duration_ms))]
     pub fn new_with_engine(name: String, wasm_path: &PathBuf, engine: Arc<Engine>) -> Result<Self> {
         let start_time = std::time::Instant::now();
-
-        // Load the component
         let component = Component::from_file(&engine, wasm_path)
             .map_err(crate::error::WasiMcpError::Component)?;
-
-        let load_time = start_time.elapsed();
-        tracing::debug!("Component file loading took: {:?}", load_time);
-
+        tracing::Span::current().record("duration_ms", start_time.elapsed().as_micros());
         // Extract component info with optimized processing
-        let analysis_start = std::time::Instant::now();
         let (interfaces, functions) = Self::extract_component_info(&engine, &component)?;
-        let analysis_time = analysis_start.elapsed();
-
-        tracing::info!(
-            "Loaded component: {name} with {} interfaces and {} standalone functions (analysis: {:?})",
-            interfaces.len(),
-            functions.len(),
-            analysis_time
-        );
-
         Ok(Self {
             name,
             engine,
@@ -189,14 +177,6 @@ impl WasmComponent {
         for (name, item) in ty.exports(engine) {
             let exports = get_exports(engine, name, &item);
 
-            // Only log at debug level to reduce overhead
-            tracing::debug!(
-                "Found {} functions, {} interfaces in {}",
-                exports.functions.len(),
-                exports.interfaces.len(),
-                name
-            );
-
             // Process standalone functions (top-level functions not in interfaces)
             for func in exports.functions {
                 // Only add as standalone function if it's not part of an interface
@@ -217,12 +197,6 @@ impl WasmComponent {
                 }
             }
         }
-
-        tracing::debug!(
-            "Extracted {} interfaces and {} standalone functions",
-            interfaces.len(),
-            functions.len()
-        );
         Ok((interfaces, functions))
     }
 
@@ -323,12 +297,14 @@ impl WasmComponent {
         let tool_name = function_name.to_string();
 
         // Build the base description
+        let params_json = serde_json::to_string(&params).expect("json");
+        let results_json = serde_json::to_string(&results).expect("json");
         let base_description = if let Some(iface_name) = interface_name {
             format!(
-                "Function {function_name} from interface {iface_name} with params: {params:?}, results: {results:?}",
+                "Function {function_name} from interface {iface_name} with params: {params_json}, results: {results_json}",
             )
         } else {
-            format!("Function {function_name} with params: {params:?}, results: {results:?}",)
+            format!("Function {function_name} with params: {params_json}, results: {results_json}")
         };
 
         // Add component description if available

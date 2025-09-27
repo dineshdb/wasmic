@@ -46,14 +46,6 @@ pub fn create_wasi_context_with_volume_mounts(
         wasmtime_wasi::FilePerms::all(),
     )?;
 
-    // Also mount it as /tmp for compatibility
-    builder.preopened_dir(
-        &work_dir,
-        "/tmp",
-        wasmtime_wasi::DirPerms::all(),
-        wasmtime_wasi::FilePerms::all(),
-    )?;
-
     // Add volume mounts to the WASI context
     for mount in volumes {
         let host_path = Path::new(&mount.host_path);

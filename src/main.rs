@@ -10,11 +10,12 @@ mod state;
 mod wasm;
 
 use crate::cli::{Cli, Commands};
+use crate::config::Config;
 use crate::error::Result;
 use crate::server::{ServerManager, ServerMode};
 use clap::Parser;
 use std::sync::Arc;
-use wasmtime::{Config, Engine};
+use wasmtime::Engine;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -29,7 +30,7 @@ async fn main() -> Result<()> {
     tracing::info!("Starting WASI-MCP");
 
     // Create a single shared engine
-    let mut config = Config::new();
+    let mut config = wasmtime::Config::new();
     config.async_support(true);
     let engine = Arc::new(Engine::new(&config)?);
     let config_path = cli.config.clone().unwrap_or_else(|| {
@@ -38,7 +39,17 @@ async fn main() -> Result<()> {
             .join("wasic")
             .join("config.yaml")
     });
-    let profile = cli.profile.clone();
+    let config = Config::from_file(&config_path)?;
+    let profile = config
+        .profiles
+        .get(&cli.profile)
+        .ok_or_else(|| {
+            crate::error::WasiMcpError::InvalidArguments(format!(
+                "Profile '{}' not found in configuration",
+                cli.profile
+            ))
+        })?
+        .clone();
     let mode = match cli.command {
         Commands::Mcp { http } => {
             // Parse host:port string
@@ -69,25 +80,18 @@ async fn main() -> Result<()> {
                 port
             );
             ServerMode::Mcp {
-                config: config_path.clone(),
                 profile,
                 transport: crate::server::McpTransport::Http { host, port },
                 engine: engine.clone(),
             }
         }
-        Commands::Call { function, args } => {
-            tracing::info!("Call mode - profile: {:?}, function: {}", profile, function);
-
-            ServerMode::Call {
-                config: config_path.clone(),
-                profile,
-                function,
-                args,
-                engine: engine.clone(),
-            }
-        }
+        Commands::Call { function, args } => ServerMode::Call {
+            profile,
+            function,
+            args,
+            engine: engine.clone(),
+        },
         Commands::List {} => ServerMode::List {
-            config: config_path.clone(),
             profile,
             engine: engine.clone(),
         },

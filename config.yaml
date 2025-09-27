@@ -18,6 +18,9 @@ profiles:
       fetch_markdown:
         description: "Fetch urls and convert them to markdown"
         oci: ghcr.io/dineshdb/wasi-components/fetch_markdown:latest
+      myip:
+        description: "Get your public ip"
+        oci: ghcr.io/dineshdb/wasi-components/myip:latest
       fs:
         description: "file and directory operations"
         oci: ghcr.io/dineshdb/wasi-components/filesystem:v0.1.0

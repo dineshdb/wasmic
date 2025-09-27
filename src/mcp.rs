@@ -9,8 +9,10 @@ use rmcp::{
     model::{CallToolRequestParam, CallToolResult, Content, ListToolsResult, ServerInfo},
     service::{RequestContext, RoleServer},
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+use tracing::debug;
 
 /// WASM MCP server with improved error handling and logging
 #[derive(Clone)]
@@ -89,21 +91,10 @@ impl ServerHandler for WasmMcpServer {
         _params: Option<rmcp::model::PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
     ) -> std::result::Result<ListToolsResult, McpError> {
-        tracing::debug!("Listing tools from all components");
-
-        let start_time = Instant::now();
-
         let tools = self.executor.get_all_tools().map_err(|e| {
             tracing::error!("Failed to create tools: {}", e);
             McpError::internal_error(format!("Failed to create tools: {e}"), None)
         })?;
-
-        let list_duration = start_time.elapsed();
-        tracing::info!(
-            "Listed {} tools from all components in {:?}",
-            tools.len(),
-            list_duration
-        );
 
         Ok(ListToolsResult {
             tools,
@@ -117,49 +108,18 @@ impl ServerHandler for WasmMcpServer {
         params: CallToolRequestParam,
         _context: RequestContext<RoleServer>,
     ) -> std::result::Result<CallToolResult, McpError> {
-        let tool_name = params.name.clone();
         let arguments_map = params.arguments.unwrap_or_default();
-
-        // Convert serde_json::Map to HashMap<String, serde_json::Value>
-        let arguments_hashmap: std::collections::HashMap<String, serde_json::Value> =
-            arguments_map.into_iter().collect();
-
-        tracing::info!(
-            "Calling tool: {} with {} named arguments",
-            tool_name,
-            arguments_hashmap.len()
-        );
-        tracing::debug!("Tool named arguments: {:?}", arguments_hashmap);
-
-        let start_time = Instant::now();
-
-        // Pass named arguments directly to the executor
-        match self
+        let arguments: HashMap<String, serde_json::Value> = arguments_map.into_iter().collect();
+        let result = self
             .executor
-            .execute_function(&tool_name, arguments_hashmap)
+            .execute_function(&params.name, arguments)
             .await
-        {
-            Ok(result) => {
-                let execution_time = start_time.elapsed();
-                tracing::info!("Tool execution successful in {:?}", execution_time);
-                tracing::debug!("Tool result: {}", result.result);
+            .map_err(|e| McpError::internal_error(format!("Failed to execute tool: {e}"), None))?;
 
-                let content = serde_json::to_string(&result).map_err(|e| {
-                    tracing::error!("Failed to serialize result: {}", e);
-                    McpError::internal_error(format!("Failed to serialize result: {e}"), None)
-                })?;
-
-                Ok(CallToolResult::success(vec![Content::text(content)]))
-            }
-            Err(e) => {
-                let execution_time = start_time.elapsed();
-                tracing::error!("Tool execution failed after {:?}: {}", execution_time, e);
-
-                Err(McpError::internal_error(
-                    format!("Failed to execute tool: {e}"),
-                    None,
-                ))
-            }
-        }
+        let content = serde_json::to_string(&result).map_err(|e| {
+            McpError::internal_error(format!("Failed to serialize result: {e}"), None)
+        })?;
+        debug!("Tool result: {}", content);
+        Ok(CallToolResult::success(vec![Content::text(content)]))
     }
 }
