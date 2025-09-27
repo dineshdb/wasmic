@@ -1,6 +1,5 @@
-use crate::error::{Result, WasiMcpError};
+use crate::error::Result;
 use crate::executor::WasmExecutor;
-use rmcp::ServiceExt;
 use rmcp::model::ServerCapabilities;
 use rmcp::transport::streamable_http_server::{
     StreamableHttpService, session::local::LocalSessionManager,
@@ -25,23 +24,6 @@ impl WasmMcpServer {
         Self {
             executor: Arc::new(executor),
         }
-    }
-
-    /// Serve the MCP server over stdio transport
-    pub async fn serve_stdio(self) -> Result<()> {
-        let start_time = Instant::now();
-
-        // The serve method returns a RunningService that runs until completion
-        let _running_service = self.serve(rmcp::transport::stdio()).await.map_err(|e| {
-            tracing::error!("Failed to serve MCP: {}", e);
-            WasiMcpError::Mcp(format!("Failed to serve MCP: {e}"))
-        })?;
-
-        // The service will run until completion or cancellation
-        let serve_duration = start_time.elapsed();
-        tracing::info!("MCP server service completed in {:?}", serve_duration);
-
-        Ok(())
     }
 
     /// Serve the MCP server over HTTP transport using axum

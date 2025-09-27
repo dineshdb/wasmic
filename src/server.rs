@@ -1,9 +1,9 @@
-use crate::config::Config;
 use crate::error::Result;
 use crate::executor::WasmExecutor;
 use crate::mcp::WasmMcpServer;
 use crate::oci::OciManager;
 use crate::wasm::WasmComponent;
+use crate::{config::Config, error::WasiMcpError};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,8 +15,6 @@ use wasmtime::Engine;
 pub enum McpTransport {
     /// HTTP transport
     Http { host: String, port: u16 },
-    /// Stdio transport
-    Stdio,
 }
 
 /// Server mode configuration
@@ -76,8 +74,6 @@ impl ServerManager {
     /// Load all components from a profile configuration into an executor (parallel and async)
     #[instrument(level = "info", skip(profile, engine), fields(components))]
     async fn load(profile: crate::config::Profile, engine: Arc<Engine>) -> Result<WasmExecutor> {
-        tracing::info!("Loading components");
-
         if profile.components.is_empty() {
             return Err(crate::error::WasiMcpError::InvalidArguments(
                 "Profile has no components configured".to_string(),
@@ -103,10 +99,10 @@ impl ServerManager {
                     } else if let Some(path) = &component_config.path {
                         format!("local: {path}")
                     } else {
-                        "unknown".to_string()
+                        return Err(WasiMcpError::InvalidArguments("unknown source".to_string()));
                     };
 
-                    tracing::debug!(component_name = %name, source, "Loading component");
+                    tracing::debug!(component= %name, source, "Loading component");
 
                     // Resolve the component reference (handle both local and OCI)
                     let resolved_path = oci_manager
@@ -123,8 +119,7 @@ impl ServerManager {
                         engine.clone(),
                     )?;
 
-                    tracing::debug!(component_name = %name, "Component loaded");
-
+                    tracing::debug!(component = %name, "loaded");
                     Ok::<(String, WasmComponent), crate::error::WasiMcpError>((
                         name,
                         wasm_component,
@@ -191,10 +186,6 @@ impl ServerManager {
             McpTransport::Http { host, port } => {
                 tracing::info!(profile, host, port, "Starting MCP HTTP server",);
                 WasmMcpServer::serve_http(server, host, port).await?;
-            }
-            McpTransport::Stdio => {
-                tracing::info!(profile, "Starting MCP stdio server",);
-                server.serve_stdio().await?;
             }
         }
         Ok(())

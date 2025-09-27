@@ -21,29 +21,10 @@ async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
     let cli = Cli::parse();
 
-    // Check if we're using stdio transport and configure logging accordingly
-    let use_stdio_transport = matches!(cli.command, Commands::Mcp { stdio: true, .. });
-
-    if use_stdio_transport {
-        // For stdio transport, use JSON logging to stderr to avoid interfering with JSON-RPC on stdout
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .json()
-            .with_target(false)
-            .with_thread_ids(false)
-            .with_thread_names(false)
-            .with_file(false)
-            .with_line_number(false)
-            .with_current_span(false)
-            .with_span_list(false)
-            .with_writer(std::io::stderr)
-            .init();
-    } else {
-        // For HTTP transport or other modes, use normal stdout/stderr logging
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .init();
-    }
+    // Configure normal stdout/stderr logging
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
 
     tracing::info!("Starting WASI-MCP");
 
@@ -59,49 +40,39 @@ async fn main() -> Result<()> {
     });
     let profile = cli.profile.clone();
     let mode = match cli.command {
-        Commands::Mcp { http, stdio } => {
-            if stdio {
-                tracing::info!("MCP stdio mode - profile: {:?}", profile);
-                ServerMode::Mcp {
-                    config: config_path.clone(),
-                    profile,
-                    transport: crate::server::McpTransport::Stdio,
-                    engine: engine.clone(),
-                }
-            } else {
-                // Parse host:port string
-                let (host, port) = if http.contains(':') {
-                    let parts: Vec<&str> = http.split(':').collect();
-                    let host = if parts[0].is_empty() {
-                        "127.0.0.1"
-                    } else {
-                        parts[0]
-                    };
-                    let port_str = parts[1..].join(":");
-                    let port = port_str.parse().map_err(|_| {
-                        tracing::error!("Error: Invalid port number in --http argument");
-                        crate::error::WasiMcpError::InvalidArguments(
-                            "Invalid port number in --http argument".to_string(),
-                        )
-                    })?;
-                    (host.to_string(), port)
+        Commands::Mcp { http } => {
+            // Parse host:port string
+            let (host, port) = if http.contains(':') {
+                let parts: Vec<&str> = http.split(':').collect();
+                let host = if parts[0].is_empty() {
+                    "127.0.0.1"
                 } else {
-                    // If no port specified, use default
-                    (http, 8080)
+                    parts[0]
                 };
+                let port_str = parts[1..].join(":");
+                let port = port_str.parse().map_err(|_| {
+                    tracing::error!("Error: Invalid port number in --http argument");
+                    crate::error::WasiMcpError::InvalidArguments(
+                        "Invalid port number in --http argument".to_string(),
+                    )
+                })?;
+                (host.to_string(), port)
+            } else {
+                // If no port specified, use default
+                (http, 8080)
+            };
 
-                tracing::info!(
-                    "MCP HTTP mode - profile: {:?}, host: {}, port: {}",
-                    profile,
-                    host,
-                    port
-                );
-                ServerMode::Mcp {
-                    config: config_path.clone(),
-                    profile,
-                    transport: crate::server::McpTransport::Http { host, port },
-                    engine: engine.clone(),
-                }
+            tracing::info!(
+                "MCP HTTP mode - profile: {:?}, host: {}, port: {}",
+                profile,
+                host,
+                port
+            );
+            ServerMode::Mcp {
+                config: config_path.clone(),
+                profile,
+                transport: crate::server::McpTransport::Http { host, port },
+                engine: engine.clone(),
             }
         }
         Commands::Call { function, args } => {

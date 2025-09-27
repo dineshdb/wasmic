@@ -42,9 +42,8 @@ impl WasmExecutor {
         let component_arc = Arc::new(component);
         self.components.insert(name.clone(), component_arc);
 
-        tracing::info!(
-            "Added component '{}' with {} tools",
-            name,
+        tracing::debug!(
+            "Added component '{name}' with {} tools",
             self.get_component_tools(&name)?.len()
         );
         Ok(())

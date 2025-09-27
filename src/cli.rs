@@ -26,10 +26,6 @@ pub enum Commands {
         /// Use HTTP transport with host:port (e.g., "127.0.0.1:8080" or ":8080")
         #[arg(long, default_value = "127.0.0.1:8080")]
         http: String,
-
-        /// Use stdio transport
-        #[arg(long)]
-        stdio: bool,
     },
     /// Directly call a WASM method
     Call {

@@ -1,13 +1,13 @@
 
 # Installation (for development)
 install:
+	#!/bin/bash
 	cargo install --path . -f
-	mkdir -p "~/.config/wasic/" || mkdir -p "~/Library/Application Support/wasic/"
-	cp config.yaml "~/.config/wasic/" 2>/dev/null && cp config.yaml ~/Library/Application\ Support/wasic/ 2>/dev/null
-macOS:
-	cp etc/homebrew.mxcl.wasic.plist ~/Library/LaunchAgents/homebrew.mxcl.wasic.plist || true
-	launchctl load ~/Library/LaunchAgents/homebrew.mxcl.wasic.plist
-	launchctl start homebrew.mxcl.wasic
+	if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then mkdir -p "$APPDATA/wasic/" && cp config.yaml "$APPDATA/wasic/"; \
+	elif [[ "$OSTYPE" == "darwin"* ]]; then mkdir -p "$HOME/Library/Application Support/wasic/" && cp config.yaml "$HOME/Library/Application Support/wasic/"; \
+	elif [[ "$OSTYPE" == "linux-gnu"* ]]; then mkdir -p ~/.config/wasic/ && cp config.yaml ~/.config/wasic/; \
+	fi
+
 # Development commands
 fmt:
 	cargo fmt --all
@@ -27,12 +27,19 @@ lint-fix: fmt
 
 # CI tool installation (using cargo-binstall, minimal dependencies)
 install-tools:
+	#!/bin/bash
 	@echo "Installing cargo-binstall..."
-	which cargo-binstall > /dev/null || curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+	if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then \
+		where cargo-binstall > nul 2>&1 || powershell -Command "irm https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | iex"; \
+	else \
+		which cargo-binstall > /dev/null || curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash; \
+	fi
 	@echo "Installing rustfmt..."
 	cargo fmt --version > /dev/null || rustup component add rustfmt
 	cargo clippy --version > /dev/null || rustup component add clippy
-
+	cargo binstall cargo-sort
+	cargo binstall cargo-machete
+	
 # Application commands
 call: call-time call-fetch
 call-time:
@@ -46,6 +53,8 @@ list:
 
 # Full test suite
 full-test:
+	cargo test
+	cargo clippy -- -D warnings
 	@echo "✅ Full test suite passed"
 
 # Setup for new developers

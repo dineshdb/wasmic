@@ -12,6 +12,12 @@ profiles:
       context7:
         description: "Resolving dependencies and libraries id"
         oci: ghcr.io/dineshdb/wasi-components/context7:v0.1.0
+      markdown:
+        description: "Manipulate markdown"
+        oci: ghcr.io/dineshdb/wasi-components/markdown:latest
+      fetch_markdown:
+        description: "Fetch urls and convert them to markdown"
+        oci: ghcr.io/dineshdb/wasi-components/fetch_markdown:latest
       fs:
         description: "file and directory operations"
         oci: ghcr.io/dineshdb/wasi-components/filesystem:v0.1.0

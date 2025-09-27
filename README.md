@@ -2,6 +2,7 @@
 
 A CLI tool for managing WASI components and running them as MCP (Model Context
 Protocol) servers.
+[See components for use](https://github.com/dineshdb/wasi-components/)
 
 ## What it does
 

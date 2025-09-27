@@ -260,7 +260,6 @@ impl WasmComponent {
             }
         }
 
-        tracing::debug!("Created {} tools from component", tools.len());
         Ok(tools)
     }
 
