@@ -1,4 +1,4 @@
-# wasic
+# wasmic
 
 A CLI tool for managing WASI components and running them as MCP (Model Context
 Protocol) servers.
@@ -8,7 +8,7 @@ Protocol) servers.
 
 **Wasic** enables you to run WebAssembly components as MCP (Model Context
 Protocol) servers, giving you access to a wide range of tools and functionality
-through a unified interface. With wasic, you can:
+through a unified interface. With wasmic, you can:
 
 - **Deploy and manage WebAssembly tools** from local files or remote OCI
   registries
@@ -35,18 +35,18 @@ through a unified interface. With wasic, you can:
 
 Pre-compiled binaries for Linux (x86_64), macOS (x86_64 and ARM64), and Windows
 (x86_64) are available on the
-[GitHub Releases](https://github.com/dineshdb/wasic/releases) page. This is the
-recommended way to install `wasic` for most users.
+[GitHub Releases](https://github.com/dineshdb/wasmic/releases) page. This is the
+recommended way to install `wasmic` for most users.
 
 Download the appropriate archive for your system, extract it, and place the
-`wasic` (or `wasic.exe` on Windows) binary in your system's PATH.
+`wasmic` (or `wasmic.exe` on Windows) binary in your system's PATH.
 
 ### Using cargo-binstall
 
 For easy installation from crates.io (once published):
 
 ```bash
-cargo binstall wasic
+cargo binstall wasmic
 ```
 
 ### From Cargo
@@ -54,7 +54,7 @@ cargo binstall wasic
 To install the latest version from source via Cargo:
 
 ```bash
-cargo install wasic
+cargo install wasmic
 ```
 
 ### From Source
@@ -63,8 +63,8 @@ To install the latest development version from source:
 
 ```bash
 # Clone the repository
-git clone https://github.com/dineshdb/wasic.git
-cd wasic
+git clone https://github.com/dineshdb/wasmic.git
+cd wasmic
 
 # Install the CLI tool
 just install
@@ -83,22 +83,22 @@ The default configuration file is `config.yaml` in the project root. It defines:
 
 ### Configuration Locations
 
-The wasic CLI looks for configuration files in the following order:
+The wasmic CLI looks for configuration files in the following order:
 
 1. Command-line argument (`--config`)
 2. Environment variable (`WASIC_CONFIG`)
 3. Default locations:
-   - Linux/macOS: `~/.config/wasic/config.yaml`
-   - macOS: `~/Library/Application Support/wasic/config.yaml`
+   - Linux/macOS: `~/.config/wasmic/config.yaml`
+   - macOS: `~/Library/Application Support/wasmic/config.yaml`
 
 ### Cache Folder
 
 Wasic uses a cache folder for storing downloaded OCI artifacts and other
 temporary files:
 
-- Linux: `~/.cache/wasic/`
-- macOS: `~/Library/Caches/wasic/`
-- Windows: `%LOCALAPPDATA%\wasic\cache\`
+- Linux: `~/.cache/wasmic/`
+- macOS: `~/Library/Caches/wasmic/`
+- Windows: `%LOCALAPPDATA%\wasmic\cache\`
 
 ## Usage
 
@@ -106,13 +106,13 @@ temporary files:
 
 ```bash
 # List available components
-wasic --config config.yaml list
+wasmic --config config.yaml list
 
 # Call a function on a component
-wasic --config config.yaml call --function "time.get-current-time" --args "{}"
+wasmic --config config.yaml call --function "time.get-current-time" --args "{}"
 
 # Call fetch function
-wasic --config config.yaml call --function "fetch.fetch" --args '{"url":"https://httpbin.org/get"}'
+wasmic --config config.yaml call --function "fetch.fetch" --args '{"url":"https://httpbin.org/get"}'
 ```
 
 ### Configuration
@@ -138,11 +138,11 @@ profiles:
   default:
     components:
       time:
-        oci: ghcr.io/dineshdb/wasic-components/time:v0.1.0
+        oci: ghcr.io/dineshdb/wasmic-components/time:v0.1.0
         config:
           timezone: "UTC"
       fetch:
-        oci: ghcr.io/dineshdb/wasic-components/fetch:v0.1.0
+        oci: ghcr.io/dineshdb/wasmic-components/fetch:v0.1.0
 ```
 
 ### Building Components
@@ -165,13 +165,13 @@ tools:
 
 ```bash
 # Start MCP server with default config
-wasic mcp
+wasmic mcp
 
 # Start with custom config
-wasic mcp --config /path/to/config.yaml
+wasmic mcp --config /path/to/config.yaml
 
 # Start on specific host and port
-wasic mcp --http 0.0.0.0:8080
+wasmic mcp --http 0.0.0.0:8080
 ```
 
 ### MCP Integration

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use tempfile::TempDir;
-use wasic::config::{ComponentConfig, Profile, VolumeMount};
-use wasic::linker::create_wasi_context;
+use wasmic::config::{ComponentConfig, Profile, VolumeMount};
+use wasmic::linker::create_wasi_context;
 
 #[test]
 fn test_create_wasi_context_with_volume_mounts() {

@@ -1,11 +1,11 @@
 use clap::Parser;
 use std::sync::Arc;
 use tracing::error;
-use wasic::WasiMcpError;
-use wasic::cli::{Cli, Commands};
-use wasic::config::Config;
-use wasic::error::Result;
-use wasic::server::{ServerManager, ServerMode};
+use wasmic::WasiMcpError;
+use wasmic::cli::{Cli, Commands};
+use wasmic::config::Config;
+use wasmic::error::Result;
+use wasmic::server::{ServerManager, ServerMode};
 use wasmtime::Engine;
 
 #[tokio::main]
@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
     let config_path = cli.config.clone().unwrap_or_else(|| {
         dirs::config_dir()
             .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join("wasic")
+            .join("wasmic")
             .join("config.yaml")
     });
     let config = Config::from_file(&config_path)?;
@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
             );
             ServerMode::Mcp {
                 profile,
-                transport: wasic::server::McpTransport::Http { host, port },
+                transport: wasmic::server::McpTransport::Http { host, port },
                 engine: engine.clone(),
             }
         }

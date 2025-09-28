@@ -3090,30 +3090,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasic"
-version = "0.1.0"
-dependencies = [
- "axum",
- "clap",
- "dirs",
- "dotenvy",
- "futures",
- "oci-distribution",
- "rmcp",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "thiserror 2.0.16",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "wasmtime",
- "wasmtime-wasi",
- "wasmtime-wasi-http",
-]
-
-[[package]]
 name = "wasip2"
 version = "1.0.1+wasi-0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3215,6 +3191,30 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "wasmic"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "clap",
+ "dirs",
+ "dotenvy",
+ "futures",
+ "oci-distribution",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "thiserror 2.0.16",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "wasmtime",
+ "wasmtime-wasi",
+ "wasmtime-wasi-http",
 ]
 
 [[package]]

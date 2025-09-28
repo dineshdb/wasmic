@@ -1,7 +1,7 @@
 # Development Guide
 
 This document provides comprehensive information for developers working on the
-wasic project.
+wasmic project.
 
 ## Prerequisites
 
@@ -11,13 +11,13 @@ wasic project.
 - wkg
 - just (command runner)
 
-### Installing wasic (Recommended)
+### Installing wasmic (Recommended)
 
-For users and developers, the recommended way to install wasic is using
+For users and developers, the recommended way to install wasmic is using
 `cargo binstall`:
 
 ```bash
-cargo binstall wasic
+cargo binstall wasmic
 ```
 
 ### Installing Development Dependencies
@@ -33,9 +33,9 @@ just check-tools
 ## Project Structure
 
 ```
-wasic/
+wasmic/
 ├── pkg/
-│   ├── wasic/           # Main CLI application
+│   ├── wasmic/           # Main CLI application
 │   ├── time/           # Time WASM component
 │   └── fetch/          # Fetch WASM component
 ├── config.yaml         # Default configuration
@@ -50,7 +50,7 @@ wasic/
 ```bash
 # Clone and setup
 git clone <repository-url>
-cd wasic
+cd wasmic
 
 # Install tools and build
 just setup
@@ -142,7 +142,7 @@ just test
 just test-verbose
 
 # Run tests for specific package
-cargo test -p wasic
+cargo test -p wasmic
 ```
 
 ## WASM Component Development
@@ -190,22 +190,22 @@ The default configuration file is `config.yaml` in the project root. It defines:
 
 ### Configuration Locations
 
-The wasic CLI looks for configuration files in the following order:
+The wasmic CLI looks for configuration files in the following order:
 
 1. Command-line argument (`--config`)
 2. Environment variable (`WASIC_CONFIG`)
 3. Default locations:
-   - Linux/macOS: `~/.config/wasic/config.yaml`
-   - macOS: `~/Library/Application Support/wasic/config.yaml`
+   - Linux/macOS: `~/.config/wasmic/config.yaml`
+   - macOS: `~/Library/Application Support/wasmic/config.yaml`
 
 ### Cache Folder
 
 Wasic uses a cache folder for storing downloaded OCI artifacts and other
 temporary files:
 
-- Linux: `~/.cache/wasic/`
-- macOS: `~/Library/Caches/wasic/`
-- Windows: `%LOCALAPPDATA%\wasic\cache\`
+- Linux: `~/.cache/wasmic/`
+- macOS: `~/Library/Caches/wasmic/`
+- Windows: `%LOCALAPPDATA%\wasmic\cache\`
 
 ## MCP Server Integration
 
@@ -213,13 +213,13 @@ temporary files:
 
 ```bash
 # Start MCP server with default config
-wasic server
+wasmic server
 
 # Start with custom config
-wasic server --config /path/to/config.yaml
+wasmic server --config /path/to/config.yaml
 
 # Start in debug mode
-wasic server --debug
+wasmic server --debug
 ```
 
 ### MCP Server Configuration
@@ -233,7 +233,7 @@ server:
   debug: false
 
 mcp:
-  server_name: "wasic"
+  server_name: "wasmic"
   version: "1.0.0"
 ```
 
@@ -288,7 +288,7 @@ The release process creates:
 1. **Component Loading Failures**
    ```bash
    # Check component paths
-   wasic --config config.yaml list
+   wasmic --config config.yaml list
 
    # Validate WASM components
    just validate-wasm
@@ -306,23 +306,23 @@ The release process creates:
 3. **MCP Server Issues**
    ```bash
    # Start server in debug mode
-   wasic server --debug
+   wasmic server --debug
 
    # Check server logs
-   tail -f ~/.local/share/wasic/server.log
+   tail -f ~/.local/share/wasmic/server.log
    ```
 
 ### Debug Commands
 
 ```bash
 # Show component information
-wasic --config config.yaml list
+wasmic --config config.yaml list
 
 # Test component execution
-wasic --config config.yaml call --function "time.get-current-time" --args "{}"
+wasmic --config config.yaml call --function "time.get-current-time" --args "{}"
 
 # Validate configuration
-wasic --config config.yaml validate
+wasmic --config config.yaml validate
 ```
 
 ## Contributing
@@ -347,7 +347,7 @@ just clean-cache
 just --list
 
 # Build and run immediately
-just build && cargo run --bin wasic -- --config config.yaml list
+just build && cargo run --bin wasmic -- --config config.yaml list
 ```
 
 ## Troubleshooting
@@ -381,8 +381,8 @@ wkg --version
 
 ```bash
 # Validate configuration
-wasic --config config.yaml validate
+wasmic --config config.yaml validate
 
 # Show effective configuration
-wasic --config config.yaml show-config
+wasmic --config config.yaml show-config
 ```

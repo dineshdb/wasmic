@@ -69,7 +69,7 @@ impl ServerHandler for WasmMcpServer {
                 ..Default::default()
             },
             server_info: rmcp::model::Implementation {
-                name: "wasic".into(),
+                name: "wasmic".into(),
                 version: "0.1.0".into(),
                 title: None,
                 website_url: None,

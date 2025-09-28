@@ -3,9 +3,9 @@
 install:
 	#!/bin/bash
 	cargo install --path . -f
-	if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then mkdir -p "$APPDATA/wasic/" && cp config.yaml "$APPDATA/wasic/"; \
-	elif [[ "$OSTYPE" == "darwin"* ]]; then mkdir -p "$HOME/Library/Application Support/wasic/" && cp config.yaml "$HOME/Library/Application Support/wasic/"; \
-	elif [[ "$OSTYPE" == "linux-gnu"* ]]; then mkdir -p ~/.config/wasic/ && cp config.yaml ~/.config/wasic/; \
+	if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then mkdir -p "$APPDATA/wasmic/" && cp config.yaml "$APPDATA/wasmic/"; \
+	elif [[ "$OSTYPE" == "darwin"* ]]; then mkdir -p "$HOME/Library/Application Support/wasmic/" && cp config.yaml "$HOME/Library/Application Support/wasmic/"; \
+	elif [[ "$OSTYPE" == "linux-gnu"* ]]; then mkdir -p ~/.config/wasmic/ && cp config.yaml ~/.config/wasmic/; \
 	fi
 
 # Development commands

@@ -15,7 +15,7 @@ profiles:
         env:
           HTTP_TIMEOUT: "30"
           MAX_REDIRECTS: "5"
-          USER_AGENT: "wasic-fetch/1.0"
+          USER_AGENT: "wasmic-fetch/1.0"
       context7:
         description: "Resolving dependencies and libraries id"
         oci: ghcr.io/dineshdb/wasi-components/context7:v0.1.0

@@ -29,7 +29,7 @@ impl OciManager {
         Ok(Self { client, cache_dir })
     }
 
-    /// Get XDG cache directory for wasic
+    /// Get XDG cache directory for wasmic
     fn get_cache_dir() -> Result<PathBuf> {
         let cache_dir = dirs::cache_dir()
             .ok_or_else(|| {
@@ -37,7 +37,7 @@ impl OciManager {
                     "Could not determine cache directory".to_string(),
                 )
             })?
-            .join("wasic");
+            .join("wasmic");
 
         Ok(cache_dir)
     }

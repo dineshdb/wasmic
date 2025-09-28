@@ -1,23 +1,23 @@
 [package]
-name = "wasic"
+name = "wasmic"
 version = "0.1.0"
 edition = "2024"
 description = "A CLI tool for managing WASI components and running them as MCP servers"
 authors = ["Dinesh Bhattarai <dineshdb@dbhattarai.info.np>"]
 license = "MIT"
-repository = "https://github.com/dineshdb/wasic"
-homepage = "https://github.com/dineshdb/wasic"
-documentation = "https://github.com/dineshdb/wasic#readme"
+repository = "https://github.com/dineshdb/wasmic"
+homepage = "https://github.com/dineshdb/wasmic"
+documentation = "https://github.com/dineshdb/wasmic#readme"
 keywords = ["wasi", "wasm", "mcp", "cli", "components"]
 categories = ["command-line-utilities", "development-tools", "wasm"]
 readme = "README.md"
 
 [lib]
-name = "wasic"
+name = "wasmic"
 path = "src/lib.rs"
 
 [[bin]]
-name = "wasic"
+name = "wasmic"
 path = "src/main.rs"
 
 [dependencies]
