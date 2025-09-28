@@ -3,37 +3,229 @@ use serde_json::Value;
 use wasmtime::component::Val;
 
 /// Transformer for converting between serde_json::Value and wasmtime::component::Val
-pub struct ValueTransformer;
+pub struct JsonWasmTransformer;
 
-impl ValueTransformer {
+impl JsonWasmTransformer {
     /// Convert a serde_json::Value to a wasmtime::component::Val
-    pub fn json_to_wasm(json_value: &Value) -> Result<Val> {
+    pub fn to_wasm(json_value: &Value) -> Result<Val> {
+        Self::to_wasm_with_type(json_value, None)
+    }
+
+    /// Convert a serde_json::Value to a wasmtime::component::Val with type information
+    pub fn to_wasm_with_type(
+        json_value: &Value,
+        wasm_type: Option<&wasmtime::component::Type>,
+    ) -> Result<Val> {
         match json_value {
             Value::Null => Ok(Val::String("null".to_string())),
             Value::Bool(b) => Ok(Val::Bool(*b)),
             Value::Number(n) => {
-                if n.is_i64() {
-                    Ok(Val::S64(n.as_i64().unwrap()))
-                } else if n.is_u64() {
-                    Ok(Val::U64(n.as_u64().unwrap()))
+                // If we have WASM type information, use it to determine the correct type
+                if let Some(wasm_type) = wasm_type {
+                    match wasm_type {
+                        wasmtime::component::Type::U8 => {
+                            if let Some(u) = n.as_u64() {
+                                if u <= u8::MAX as u64 {
+                                    Ok(Val::U8(u as u8))
+                                } else {
+                                    Err(WasiMcpError::InvalidArguments(format!(
+                                        "Value {u} exceeds u8 range",
+                                    )))
+                                }
+                            } else {
+                                Err(WasiMcpError::InvalidArguments(
+                                    "Expected unsigned integer for u8 type".to_string(),
+                                ))
+                            }
+                        }
+                        wasmtime::component::Type::U16 => {
+                            if let Some(u) = n.as_u64() {
+                                if u <= u16::MAX as u64 {
+                                    Ok(Val::U16(u as u16))
+                                } else {
+                                    Err(WasiMcpError::InvalidArguments(format!(
+                                        "Value {u} exceeds u16 range",
+                                    )))
+                                }
+                            } else {
+                                Err(WasiMcpError::InvalidArguments(
+                                    "Expected unsigned integer for u16 type".to_string(),
+                                ))
+                            }
+                        }
+                        wasmtime::component::Type::U32 => {
+                            if let Some(u) = n.as_u64() {
+                                if u <= u32::MAX as u64 {
+                                    Ok(Val::U32(u as u32))
+                                } else {
+                                    Err(WasiMcpError::InvalidArguments(format!(
+                                        "Value {u} exceeds u32 range",
+                                    )))
+                                }
+                            } else {
+                                Err(WasiMcpError::InvalidArguments(
+                                    "Expected unsigned integer for u32 type".to_string(),
+                                ))
+                            }
+                        }
+                        wasmtime::component::Type::U64 => {
+                            if let Some(u) = n.as_u64() {
+                                Ok(Val::U64(u))
+                            } else {
+                                Err(WasiMcpError::InvalidArguments(
+                                    "Expected unsigned integer for u64 type".to_string(),
+                                ))
+                            }
+                        }
+                        wasmtime::component::Type::S8 => {
+                            if let Some(i) = n.as_i64() {
+                                if i >= i8::MIN as i64 && i <= i8::MAX as i64 {
+                                    Ok(Val::S8(i as i8))
+                                } else {
+                                    Err(WasiMcpError::InvalidArguments(format!(
+                                        "Value {i} exceeds s8 range",
+                                    )))
+                                }
+                            } else {
+                                Err(WasiMcpError::InvalidArguments(
+                                    "Expected signed integer for s8 type".to_string(),
+                                ))
+                            }
+                        }
+                        wasmtime::component::Type::S16 => {
+                            if let Some(i) = n.as_i64() {
+                                if i >= i16::MIN as i64 && i <= i16::MAX as i64 {
+                                    Ok(Val::S16(i as i16))
+                                } else {
+                                    Err(WasiMcpError::InvalidArguments(format!(
+                                        "Value {i} exceeds s16 range",
+                                    )))
+                                }
+                            } else {
+                                Err(WasiMcpError::InvalidArguments(
+                                    "Expected signed integer for s16 type".to_string(),
+                                ))
+                            }
+                        }
+                        wasmtime::component::Type::S32 => {
+                            if let Some(i) = n.as_i64() {
+                                if i >= i32::MIN as i64 && i <= i32::MAX as i64 {
+                                    Ok(Val::S32(i as i32))
+                                } else {
+                                    Err(WasiMcpError::InvalidArguments(format!(
+                                        "Value {i} exceeds s32 range",
+                                    )))
+                                }
+                            } else {
+                                Err(WasiMcpError::InvalidArguments(
+                                    "Expected signed integer for s32 type".to_string(),
+                                ))
+                            }
+                        }
+                        wasmtime::component::Type::S64 => {
+                            if let Some(i) = n.as_i64() {
+                                Ok(Val::S64(i))
+                            } else {
+                                Err(WasiMcpError::InvalidArguments(
+                                    "Expected signed integer for s64 type".to_string(),
+                                ))
+                            }
+                        }
+                        wasmtime::component::Type::Float32 => {
+                            if let Some(f) = n.as_f64() {
+                                Ok(Val::Float32(f as f32))
+                            } else {
+                                Err(WasiMcpError::InvalidArguments(
+                                    "Expected float for f32 type".to_string(),
+                                ))
+                            }
+                        }
+                        wasmtime::component::Type::Float64 => {
+                            if let Some(f) = n.as_f64() {
+                                Ok(Val::Float64(f))
+                            } else {
+                                Err(WasiMcpError::InvalidArguments(
+                                    "Expected float for f64 type".to_string(),
+                                ))
+                            }
+                        }
+                        // For other types, fall back to default behavior
+                        _ => {
+                            if n.is_i64() {
+                                Ok(Val::S64(n.as_i64().unwrap()))
+                            } else if n.is_u64() {
+                                Ok(Val::U64(n.as_u64().unwrap()))
+                            } else {
+                                // Handle f64 values
+                                Ok(Val::Float64(n.as_f64().unwrap()))
+                            }
+                        }
+                    }
                 } else {
-                    // Handle f64 values
-                    Ok(Val::Float64(n.as_f64().unwrap()))
+                    // Default behavior when no type information is provided
+                    if n.is_i64() {
+                        Ok(Val::S64(n.as_i64().unwrap()))
+                    } else if n.is_u64() {
+                        Ok(Val::U64(n.as_u64().unwrap()))
+                    } else {
+                        // Handle f64 values
+                        Ok(Val::Float64(n.as_f64().unwrap()))
+                    }
                 }
             }
             Value::String(s) => Ok(Val::String(s.clone())),
             Value::Array(arr) => {
-                let wasm_values: Result<Vec<Val>> = arr.iter().map(Self::json_to_wasm).collect();
+                let wasm_values: Result<Vec<Val>> = arr
+                    .iter()
+                    .map(|v| Self::to_wasm_with_type(v, None))
+                    .collect();
                 Ok(Val::List(wasm_values?))
             }
             Value::Object(obj) => {
-                let record_fields: Result<Vec<(String, Val)>> = obj
-                    .iter()
-                    .map(|(key, value)| {
-                        Self::json_to_wasm(value).map(|wasm_val| (key.clone(), wasm_val))
-                    })
-                    .collect();
-                Ok(Val::Record(record_fields?))
+                // If we have WASM type information and it's a record, use the field order from the type
+                if let Some(wasmtime::component::Type::Record(record_type)) = wasm_type {
+                    let expected_fields: Vec<&str> = record_type.fields().map(|f| f.name).collect();
+                    let mut record_fields = Vec::with_capacity(expected_fields.len());
+
+                    // Create a map for quick lookup
+                    let obj_map: std::collections::HashMap<&str, &Value> =
+                        obj.iter().map(|(k, v)| (k.as_str(), v)).collect();
+
+                    // Add fields in the expected order
+                    for field in record_type.fields() {
+                        let field_name = field.name;
+                        let field_type = field.ty.clone();
+                        if let Some(field_value) = obj_map.get(field_name) {
+                            let wasm_val = Self::to_wasm_with_type(field_value, Some(&field_type))?;
+                            record_fields.push((field_name.to_string(), wasm_val));
+                        } else {
+                            return Err(WasiMcpError::InvalidArguments(format!(
+                                "Missing required field: '{field_name}'",
+                            )));
+                        }
+                    }
+
+                    // Check for extra fields that aren't in the expected record
+                    for field_name in obj.keys() {
+                        if !expected_fields.contains(&field_name.as_str()) {
+                            return Err(WasiMcpError::InvalidArguments(format!(
+                                "Unexpected field: '{field_name}'",
+                            )));
+                        }
+                    }
+
+                    Ok(Val::Record(record_fields))
+                } else {
+                    // Fallback to original behavior for non-typed objects
+                    let record_fields: Result<Vec<(String, Val)>> = obj
+                        .iter()
+                        .map(|(key, value)| {
+                            Self::to_wasm_with_type(value, None)
+                                .map(|wasm_val| (key.clone(), wasm_val))
+                        })
+                        .collect();
+                    Ok(Val::Record(record_fields?))
+                }
             }
         }
     }
@@ -124,7 +316,7 @@ impl ValueTransformer {
 
     /// Convert multiple serde_json::Value to wasmtime::component::Val
     pub fn json_vec_to_wasm_vec(json_values: &[Value]) -> Result<Vec<Val>> {
-        json_values.iter().map(Self::json_to_wasm).collect()
+        json_values.iter().map(Self::to_wasm).collect()
     }
 
     /// Convert multiple wasmtime::component::Val to serde_json::Value
@@ -148,7 +340,7 @@ impl ValueTransformer {
         let mut wasm_values = Vec::with_capacity(arguments.len());
 
         for (arg, expected_type) in arguments.iter().zip(expected_types.iter()) {
-            let wasm_val = Self::json_to_wasm_with_type(arg, expected_type)?;
+            let wasm_val = Self::json_to_wasm_with_string_type(arg, expected_type)?;
             wasm_values.push(wasm_val);
         }
 
@@ -156,10 +348,10 @@ impl ValueTransformer {
     }
 
     /// Convert a single JSON value to WASM value with type checking
-    fn json_to_wasm_with_type(json_value: &Value, expected_type: &str) -> Result<Val> {
+    fn json_to_wasm_with_string_type(json_value: &Value, expected_type: &str) -> Result<Val> {
         match (json_value, expected_type) {
             (Value::Bool(_), t) if t.contains("Bool") || t.contains("bool") => {
-                Self::json_to_wasm(json_value)
+                Self::to_wasm(json_value)
             }
             (Value::Number(n), t) if t.contains("U8") || t.contains("u8") => {
                 if let Some(u) = n.as_u64() {
@@ -167,8 +359,7 @@ impl ValueTransformer {
                         Ok(Val::U8(u as u8))
                     } else {
                         Err(WasiMcpError::InvalidArguments(format!(
-                            "Value {} exceeds u8 range",
-                            u
+                            "Value {u} exceeds u8 range",
                         )))
                     }
                 } else {
@@ -183,8 +374,7 @@ impl ValueTransformer {
                         Ok(Val::U16(u as u16))
                     } else {
                         Err(WasiMcpError::InvalidArguments(format!(
-                            "Value {} exceeds u16 range",
-                            u
+                            "Value {u} exceeds u16 range",
                         )))
                     }
                 } else {
@@ -199,8 +389,7 @@ impl ValueTransformer {
                         Ok(Val::U32(u as u32))
                     } else {
                         Err(WasiMcpError::InvalidArguments(format!(
-                            "Value {} exceeds u32 range",
-                            u
+                            "Value {u} exceeds u32 range",
                         )))
                     }
                 } else {
@@ -224,8 +413,7 @@ impl ValueTransformer {
                         Ok(Val::S8(i as i8))
                     } else {
                         Err(WasiMcpError::InvalidArguments(format!(
-                            "Value {} exceeds s8 range",
-                            i
+                            "Value {i} exceeds s8 range",
                         )))
                     }
                 } else {
@@ -240,8 +428,7 @@ impl ValueTransformer {
                         Ok(Val::S16(i as i16))
                     } else {
                         Err(WasiMcpError::InvalidArguments(format!(
-                            "Value {} exceeds s16 range",
-                            i
+                            "Value {i} exceeds s16 range",
                         )))
                     }
                 } else {
@@ -256,8 +443,7 @@ impl ValueTransformer {
                         Ok(Val::S32(i as i32))
                     } else {
                         Err(WasiMcpError::InvalidArguments(format!(
-                            "Value {} exceeds s32 range",
-                            i
+                            "Value {i} exceeds s32 range",
                         )))
                     }
                 } else {
@@ -294,18 +480,18 @@ impl ValueTransformer {
                 }
             }
             (Value::String(_), t) if t.contains("String") || t.contains("string") => {
-                Self::json_to_wasm(json_value)
+                Self::to_wasm(json_value)
             }
             (Value::Array(_), t) if t.contains("List") || t.contains("Vec") || t.contains("[]") => {
-                Self::json_to_wasm(json_value)
+                Self::to_wasm(json_value)
             }
             (Value::Object(_), t) if t.contains("Record") || t.contains("Tuple") => {
-                Self::json_to_wasm(json_value)
+                Self::to_wasm(json_value)
             }
             (Value::Null, t) if t.contains("Option") => Ok(Val::Option(None)),
             _ => {
                 // Fallback to basic conversion without type checking
-                Self::json_to_wasm(json_value)
+                Self::to_wasm(json_value)
             }
         }
     }
@@ -330,39 +516,40 @@ impl ValueTransformer {
 mod tests {
     use super::*;
     use serde_json::json;
+    use wasmtime::component::Type;
 
     #[test]
     fn test_json_bool_to_wasm() {
         let json_val = Value::Bool(true);
-        let wasm_val = ValueTransformer::json_to_wasm(&json_val).unwrap();
+        let wasm_val = JsonWasmTransformer::to_wasm(&json_val).unwrap();
         assert_eq!(wasm_val, Val::Bool(true));
     }
 
     #[test]
     fn test_wasm_bool_to_json() {
         let wasm_val = Val::Bool(false);
-        let json_val = ValueTransformer::wasm_to_json(&wasm_val).unwrap();
+        let json_val = JsonWasmTransformer::wasm_to_json(&wasm_val).unwrap();
         assert_eq!(json_val, Value::Bool(false));
     }
 
     #[test]
     fn test_json_number_to_wasm() {
         let json_val = Value::Number(serde_json::Number::from(42));
-        let wasm_val = ValueTransformer::json_to_wasm(&json_val).unwrap();
+        let wasm_val = JsonWasmTransformer::to_wasm(&json_val).unwrap();
         assert_eq!(wasm_val, Val::S64(42));
     }
 
     #[test]
     fn test_json_string_to_wasm() {
         let json_val = Value::String("hello".to_string());
-        let wasm_val = ValueTransformer::json_to_wasm(&json_val).unwrap();
+        let wasm_val = JsonWasmTransformer::to_wasm(&json_val).unwrap();
         assert_eq!(wasm_val, Val::String("hello".to_string()));
     }
 
     #[test]
     fn test_json_array_to_wasm() {
         let json_val = json!([1, 2, 3]);
-        let wasm_val = ValueTransformer::json_to_wasm(&json_val).unwrap();
+        let wasm_val = JsonWasmTransformer::to_wasm(&json_val).unwrap();
         match wasm_val {
             Val::List(vals) => {
                 assert_eq!(vals.len(), 3);
@@ -377,7 +564,7 @@ mod tests {
     #[test]
     fn test_json_object_to_wasm() {
         let json_val = json!({"key": "value"});
-        let wasm_val = ValueTransformer::json_to_wasm(&json_val).unwrap();
+        let wasm_val = JsonWasmTransformer::to_wasm(&json_val).unwrap();
         match wasm_val {
             Val::Record(fields) => {
                 assert_eq!(fields.len(), 1);
@@ -394,7 +581,7 @@ mod tests {
             Val::String("a".to_string()),
             Val::String("b".to_string()),
         ]);
-        let json_val = ValueTransformer::wasm_to_json(&wasm_val).unwrap();
+        let json_val = JsonWasmTransformer::wasm_to_json(&wasm_val).unwrap();
         assert_eq!(json_val, json!(["a", "b"]));
     }
 
@@ -404,26 +591,26 @@ mod tests {
             ("name".to_string(), Val::String("test".to_string())),
             ("value".to_string(), Val::U32(42)),
         ]);
-        let json_val = ValueTransformer::wasm_to_json(&wasm_val).unwrap();
+        let json_val = JsonWasmTransformer::wasm_to_json(&wasm_val).unwrap();
         assert_eq!(json_val, json!({"name": "test", "value": 42}));
     }
 
     #[test]
     fn test_type_checked_conversion() {
         let json_val = Value::Number(serde_json::Number::from(100));
-        let wasm_val = ValueTransformer::json_to_wasm_with_type(&json_val, "u8").unwrap();
+        let wasm_val = JsonWasmTransformer::to_wasm_with_type(&json_val, Some(&Type::U8)).unwrap();
         assert_eq!(wasm_val, Val::U8(100));
 
         // Test overflow
         let json_val = Value::Number(serde_json::Number::from(300));
-        let result = ValueTransformer::json_to_wasm_with_type(&json_val, "u8");
+        let result = JsonWasmTransformer::to_wasm_with_type(&json_val, Some(&Type::S8));
         assert!(result.is_err());
     }
 
     #[test]
     fn test_result_conversion() {
         let wasm_val = Val::Result(Ok(Some(Box::new(Val::String("success".to_string())))));
-        let json_val = ValueTransformer::wasm_to_json(&wasm_val).unwrap();
+        let json_val = JsonWasmTransformer::wasm_to_json(&wasm_val).unwrap();
 
         match json_val {
             Value::Object(obj) => {

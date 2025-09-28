@@ -60,3 +60,6 @@ full-test:
 # Setup for new developers
 setup: install-tools
 	@echo "✅ Development environment setup complete"
+
+search:
+	cargo run -- call --config config.yaml --function "brave_search.search" --args '{"params": {"query": "AI news artificial intelligence latest developments","limit": 10,"country": "US","language": "en","safe-search": "moderate","include-text": true}}'

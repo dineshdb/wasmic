@@ -1,9 +1,9 @@
 use crate::config::ComponentConfig;
 use crate::error::{Result, WasiMcpError};
-use crate::linker::create_wasi_context_with_volume_mounts;
+use crate::linker::create_wasi_context;
 use crate::state::ComponentRunStates;
-use crate::transform::ValueTransformer;
-use crate::wasm::{WasmComponent, WasmToolResult};
+use crate::transform::JsonWasmTransformer;
+use crate::wasm::WasmComponent;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -128,11 +128,13 @@ impl WasmExecutor {
         &self,
         component: &Arc<WasmComponent>,
     ) -> Result<(Store<ComponentRunStates>, wasmtime::component::Instance)> {
-        let component_config = self.get_component_config(&component.name);
-        let cwd = component_config.and_then(|config| config.cwd.as_deref());
-        let volumes = component_config.map(|config| &config.volumes);
-
-        let state = create_wasi_context_with_volume_mounts(volumes.unwrap_or(&Vec::new()), cwd)?;
+        let component_config = self.get_component_config(&component.name).ok_or_else(|| {
+            WasiMcpError::InvalidArguments(format!(
+                "Component '{}' not found in profile",
+                component.name
+            ))
+        })?;
+        let state = create_wasi_context(component_config)?;
         let mut store = Store::new(&self.engine, state);
 
         // Instantiate the component using the global linker asynchronously
@@ -384,16 +386,41 @@ impl WasmExecutor {
                     )))
                 }
             }
-            // For complex types, convert to string representation for now
-            wasmtime::component::Type::List(_)
-            | wasmtime::component::Type::Record(_)
-            | wasmtime::component::Type::Tuple(_)
-            | wasmtime::component::Type::Variant(_)
-            | wasmtime::component::Type::Enum(_)
-            | wasmtime::component::Type::Option(_)
-            | wasmtime::component::Type::Result(_)
-            | wasmtime::component::Type::Flags(_)
-            | wasmtime::component::Type::Own(_)
+            // Handle complex types properly
+            wasmtime::component::Type::Record(_) => {
+                // Use ValueTransformer to properly convert JSON objects to WASM records with type information
+                JsonWasmTransformer::to_wasm_with_type(json_value, Some(wasm_type))
+            }
+            wasmtime::component::Type::List(_) => {
+                // Use ValueTransformer to properly convert JSON arrays to WASM lists with type information
+                JsonWasmTransformer::to_wasm_with_type(json_value, Some(wasm_type))
+            }
+            wasmtime::component::Type::Tuple(_) => {
+                // Use ValueTransformer to properly convert JSON arrays to WASM tuples with type information
+                JsonWasmTransformer::to_wasm_with_type(json_value, Some(wasm_type))
+            }
+            wasmtime::component::Type::Variant(_) => {
+                // Use ValueTransformer to properly convert JSON objects to WASM variants with type information
+                JsonWasmTransformer::to_wasm_with_type(json_value, Some(wasm_type))
+            }
+            wasmtime::component::Type::Enum(_) => {
+                // Use ValueTransformer to properly convert JSON strings to WASM enums with type information
+                JsonWasmTransformer::to_wasm_with_type(json_value, Some(wasm_type))
+            }
+            wasmtime::component::Type::Option(_) => {
+                // Use ValueTransformer to properly convert JSON values to WASM options with type information
+                JsonWasmTransformer::to_wasm_with_type(json_value, Some(wasm_type))
+            }
+            wasmtime::component::Type::Result(_) => {
+                // Use ValueTransformer to properly convert JSON objects to WASM results with type information
+                JsonWasmTransformer::to_wasm_with_type(json_value, Some(wasm_type))
+            }
+            wasmtime::component::Type::Flags(_) => {
+                // Use ValueTransformer to properly convert JSON arrays to WASM flags with type information
+                JsonWasmTransformer::to_wasm_with_type(json_value, Some(wasm_type))
+            }
+            // For remaining complex types, convert to string representation for now
+            wasmtime::component::Type::Own(_)
             | wasmtime::component::Type::Borrow(_)
             | wasmtime::component::Type::Future(_)
             | wasmtime::component::Type::Stream(_)
@@ -424,7 +451,7 @@ impl WasmExecutor {
             ));
         }
 
-        ValueTransformer::convert_wasm_results_to_json(&results)
+        JsonWasmTransformer::convert_wasm_results_to_json(&results)
     }
 
     /// Execute a function from any of the managed components with named arguments
@@ -433,7 +460,7 @@ impl WasmExecutor {
         &self,
         tool_name: &str,
         arguments: HashMap<String, serde_json::Value>,
-    ) -> Result<WasmToolResult> {
+    ) -> Result<Value> {
         let start_time = Instant::now();
         let Some((component_name, function_name)) = tool_name.split_once(".") else {
             return Err(WasiMcpError::InvalidArguments(format!(
@@ -458,13 +485,7 @@ impl WasmExecutor {
             .execute_function_call(&mut store, func, &positional_args, function_info)
             .await?;
         tracing::Span::current().record("duration_ms", start_time.elapsed().as_millis());
-
-        let tool_result = WasmToolResult {
-            tool_name: format!("{}.{}", component.name, function_name),
-            result,
-            status: "success".to_string(),
-        };
-        Ok(tool_result)
+        Ok(result)
     }
 
     /// List all available component names

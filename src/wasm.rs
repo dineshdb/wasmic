@@ -1,6 +1,5 @@
 use crate::error::Result;
 use rmcp::model::Tool;
-use serde_json::Value;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tracing::instrument;
 use wasmtime::{
@@ -520,12 +519,4 @@ impl WasmComponent {
         // If not found in interfaces, try standalone functions
         self.functions.get(function_name)
     }
-}
-
-/// Tool call result structure
-#[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
-pub struct WasmToolResult {
-    pub tool_name: String,
-    pub result: Value,
-    pub status: String,
 }

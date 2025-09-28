@@ -1,19 +1,16 @@
-use crate::config::VolumeMount;
+use crate::config::ComponentConfig;
 use crate::error::Result;
 use crate::state::ComponentRunStates;
 use std::path::Path;
 use wasmtime_wasi::WasiCtxBuilder;
 
-/// Create a WASI context for component execution with volume mounts
-pub fn create_wasi_context_with_volume_mounts(
-    volumes: &[VolumeMount],
-    cwd: Option<&str>,
-) -> Result<ComponentRunStates> {
+/// Create a WASI context for component execution with volume mounts and environment variables
+pub fn create_wasi_context(component_config: &ComponentConfig) -> Result<ComponentRunStates> {
     let mut builder = WasiCtxBuilder::new();
     builder.inherit_stdio().inherit_args();
 
     // Determine the working directory
-    let work_dir = if let Some(cwd_path) = cwd {
+    if let Some(cwd_path) = &component_config.cwd {
         let path = Path::new(cwd_path);
         if !path.exists() {
             return Err(crate::error::WasiMcpError::InvalidArguments(format!(
@@ -27,27 +24,17 @@ pub fn create_wasi_context_with_volume_mounts(
                 cwd_path
             )));
         }
-        path.to_path_buf()
-    } else {
-        // Default to current directory
-        std::env::current_dir().map_err(|e| {
-            crate::error::WasiMcpError::InvalidArguments(format!(
-                "Failed to get current directory: {}",
-                e
-            ))
-        })?
-    };
 
-    // Mount working directory as the current directory
-    builder.preopened_dir(
-        &work_dir,
-        ".",
-        wasmtime_wasi::DirPerms::all(),
-        wasmtime_wasi::FilePerms::all(),
-    )?;
+        builder.preopened_dir(
+            path,
+            ".",
+            wasmtime_wasi::DirPerms::all(),
+            wasmtime_wasi::FilePerms::all(),
+        )?;
+    }
 
     // Add volume mounts to the WASI context
-    for mount in volumes {
+    for mount in &component_config.volumes {
         let host_path = Path::new(&mount.host_path);
 
         // Check if the host path exists
@@ -84,6 +71,12 @@ pub fn create_wasi_context_with_volume_mounts(
             mount.guest_path,
             mount.read_only
         );
+    }
+
+    // Add environment variables to the WASI context
+    for (key, value) in &component_config.env {
+        builder.env(key, value);
+        tracing::debug!("Set environment variable: {}={}", key, value);
     }
 
     let wasi_ctx = builder.build();

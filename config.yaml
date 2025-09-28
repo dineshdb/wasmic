@@ -6,9 +6,16 @@ profiles:
         oci: ghcr.io/dineshdb/wasi-components/time:v0.1.0
         config:
           timezone: "UTC"
+        env:
+          TIMEZONE: "UTC"
+          LOG_LEVEL: "info"
       fetch:
         description: "making web requests and fetching remote resources"
         oci: ghcr.io/dineshdb/wasi-components/fetch:v0.1.0
+        env:
+          HTTP_TIMEOUT: "30"
+          MAX_REDIRECTS: "5"
+          USER_AGENT: "wasic-fetch/1.0"
       context7:
         description: "Resolving dependencies and libraries id"
         oci: ghcr.io/dineshdb/wasi-components/context7:v0.1.0
@@ -18,6 +25,11 @@ profiles:
       fetch_markdown:
         description: "Fetch urls and convert them to markdown"
         oci: ghcr.io/dineshdb/wasi-components/fetch_markdown:latest
+      brave_search:
+        description: "Search the internet using brave search"
+        oci: ghcr.io/dineshdb/wasi-components/brave_search:latest
+        env:
+          BRAVE_SEARCH_API_KEY: api-key
       myip:
         description: "Get your public ip"
         oci: ghcr.io/dineshdb/wasi-components/myip:latest

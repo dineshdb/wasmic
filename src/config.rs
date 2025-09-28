@@ -52,6 +52,9 @@ pub struct ComponentConfig {
     /// Current working directory for the component
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    /// Environment variables for the component
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub env: HashMap<String, String>,
     /// Optional description of the component
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,

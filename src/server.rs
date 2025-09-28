@@ -203,7 +203,7 @@ impl ServerManager {
     /// List available functions from all components in a configuration file
     #[instrument(
         level = "info",
-        skip(engine),
+        skip(engine, profile),
         fields(profile_name, functions, components)
     )]
     async fn list_functions(profile: Profile, engine: Arc<Engine>) -> Result<()> {

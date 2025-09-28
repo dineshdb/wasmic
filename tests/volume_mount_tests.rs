@@ -1,6 +1,7 @@
+use std::collections::HashMap;
 use tempfile::TempDir;
-use wasic::config::VolumeMount;
-use wasic::linker::create_wasi_context_with_volume_mounts;
+use wasic::config::{ComponentConfig, Profile, VolumeMount};
+use wasic::linker::create_wasi_context;
 
 #[test]
 fn test_create_wasi_context_with_volume_mounts() {
@@ -26,8 +27,30 @@ fn test_create_wasi_context_with_volume_mounts() {
         },
     ];
 
+    // Create a component config with volume mounts
+    let mut components = HashMap::new();
+    components.insert(
+        "test_component".to_string(),
+        ComponentConfig {
+            path: Some("test.wasm".to_string()),
+            oci: None,
+            config: None,
+            volumes: volume_mounts,
+            cwd: Some(temp_path.to_string_lossy().to_string()),
+            env: HashMap::new(),
+            description: None,
+        },
+    );
+
+    // Create a profile with the component
+    let profile = Profile {
+        components,
+        description: None,
+    };
+
     // Test creating WASI context with volume mounts
-    let result = create_wasi_context_with_volume_mounts(&volume_mounts, None);
+    let component_config = profile.components.get("test_component").unwrap();
+    let result = create_wasi_context(component_config);
     assert!(
         result.is_ok(),
         "Failed to create WASI context with volume mounts: {:?}",
@@ -49,8 +72,30 @@ fn test_create_wasi_context_with_invalid_path() {
         read_only: false,
     }];
 
+    // Create a component config with invalid volume mounts
+    let mut components = HashMap::new();
+    components.insert(
+        "test_component".to_string(),
+        ComponentConfig {
+            path: Some("test.wasm".to_string()),
+            oci: None,
+            config: None,
+            volumes: volume_mounts,
+            cwd: Some("/tmp".to_string()),
+            env: HashMap::new(),
+            description: None,
+        },
+    );
+
+    // Create a profile with the component
+    let profile = Profile {
+        components,
+        description: None,
+    };
+
     // Test creating WASI context with invalid volume mounts
-    let result = create_wasi_context_with_volume_mounts(&volume_mounts, None);
+    let component_config = profile.components.get("test_component").unwrap();
+    let result = create_wasi_context(component_config);
     assert!(
         result.is_err(),
         "Expected error when creating WASI context with invalid path"
@@ -59,8 +104,30 @@ fn test_create_wasi_context_with_invalid_path() {
 
 #[test]
 fn test_create_wasi_context_with_empty_mounts() {
+    // Create a component config with no volume mounts
+    let mut components = HashMap::new();
+    components.insert(
+        "test_component".to_string(),
+        ComponentConfig {
+            path: Some("test.wasm".to_string()),
+            oci: None,
+            config: None,
+            volumes: Vec::new(),
+            cwd: Some("/tmp".to_string()),
+            env: HashMap::new(),
+            description: None,
+        },
+    );
+
+    // Create a profile with the component
+    let profile = Profile {
+        components,
+        description: None,
+    };
+
     // Test creating WASI context with no volume mounts
-    let result = create_wasi_context_with_volume_mounts(&[], None);
+    let component_config = profile.components.get("test_component").unwrap();
+    let result = create_wasi_context(component_config);
     assert!(
         result.is_ok(),
         "Failed to create WASI context with empty volume mounts: {:?}",
