@@ -2,7 +2,7 @@ use crate::error::Result;
 use crate::executor::WasmExecutor;
 use crate::mcp::WasmMcpServer;
 use crate::oci::OciManager;
-use crate::wasm::WasmComponent;
+use crate::{ComponentConfig, WasiMcpError};
 use crate::{config::Profile, wasm::WasmContext};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,23 +22,22 @@ pub enum ServerMode {
     Mcp {
         profile: Profile,
         transport: McpTransport,
-        context: Arc<WasmContext>,
+        context: WasmContext,
     },
     /// Direct function call
     Call {
         profile: Profile,
         function: String,
         args: String,
-        context: Arc<WasmContext>,
+        context: WasmContext,
     },
     /// List available functions
     List {
         profile: Profile,
-        context: Arc<WasmContext>,
+        context: WasmContext,
     },
 }
 
-/// Manages server operations with improved error handling and caching
 pub struct ServerManager;
 
 impl ServerManager {
@@ -55,33 +54,29 @@ impl ServerManager {
                 function,
                 args,
                 context,
-            } => Self::execute_function_call(profile, function, args, context).await,
+            } => Self::execute_function_call(profile, &function, args, context).await,
             ServerMode::List { profile, context } => Self::list_functions(profile, context).await,
         }
     }
 
-    /// Load all components from a profile configuration into an executor (parallel and async)
     #[instrument(
         level = "debug",
         skip(profile, context),
-        fields(components, duratio_ms)
+        fields(components, duration_ms)
     )]
-    async fn init(
-        profile: crate::config::Profile,
-        context: Arc<WasmContext>,
-    ) -> Result<WasmExecutor> {
+    async fn init(profile: Profile, context: WasmContext) -> Result<WasmExecutor> {
         if profile.components.is_empty() {
-            return Err(crate::error::WasiMcpError::InvalidArguments(
+            return Err(WasiMcpError::InvalidArguments(
                 "Profile has no components configured".to_string(),
             ));
         }
 
         let start_time = Instant::now();
-        let mut executor = WasmExecutor::new(context.clone(), profile.clone())?;
+        let mut executor = WasmExecutor::new(context, profile.clone())?;
 
-        let loaded_components = Self::load(&profile, &context).await?;
-        for (name, wasm_component) in loaded_components {
-            executor.add_component(name, wasm_component).await?;
+        let component_config = Self::load(&profile).await?;
+        for (name, config) in component_config {
+            executor.add_component(name, config).await?;
         }
 
         tracing::Span::current().record("components", profile.components.len());
@@ -90,17 +85,10 @@ impl ServerManager {
     }
 
     /// Load all components from a profile configuration into an executor (parallel and async)
-    #[instrument(
-        level = "debug",
-        skip(profile, context),
-        fields(components, duratio_ms)
-    )]
-    async fn load(
-        profile: &crate::config::Profile,
-        context: &WasmContext,
-    ) -> Result<Vec<(String, WasmComponent)>> {
+    #[instrument(level = "debug", skip(profile), fields(components, duratio_ms))]
+    async fn load(profile: &Profile) -> Result<Vec<(String, ComponentConfig)>> {
         if profile.components.is_empty() {
-            return Err(crate::error::WasiMcpError::InvalidArguments(
+            return Err(WasiMcpError::InvalidArguments(
                 "Profile has no components configured".to_string(),
             ));
         }
@@ -114,7 +102,6 @@ impl ServerManager {
                 let name = name.clone();
                 let mut component_config = component_config.clone();
                 let oci_manager = oci_manager.clone();
-                let engine = context.engine.clone();
 
                 async move {
                     // Resolve the component reference (handle both local and OCI)
@@ -125,9 +112,7 @@ impl ServerManager {
                         )
                         .await?;
                     component_config.path = Some(resolved_path.to_string_lossy().to_string());
-                    let component =
-                        WasmComponent::new(name.clone(), engine.clone(), component_config)?;
-                    Ok::<(String, WasmComponent), crate::error::WasiMcpError>((name, component))
+                    Ok::<(String, ComponentConfig), WasiMcpError>((name, component_config))
                 }
             })
             .collect();
@@ -141,9 +126,7 @@ impl ServerManager {
                 .collect::<Vec<_>>(),
         )
         .await
-        .map_err(|e| {
-            crate::error::WasiMcpError::Execution(format!("Component loading task failed: {e}"))
-        })?
+        .map_err(|e| WasiMcpError::Execution(format!("Component loading task failed: {e}")))?
         .into_iter()
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
@@ -155,7 +138,7 @@ impl ServerManager {
     async fn run_mcp_server(
         profile: Profile,
         transport: McpTransport,
-        context: Arc<WasmContext>,
+        context: WasmContext,
     ) -> Result<()> {
         let executor = Self::init(profile, context).await?;
         let server = WasmMcpServer::new(executor);
@@ -169,13 +152,12 @@ impl ServerManager {
         Ok(())
     }
 
-    /// Execute a direct function call using a configuration profile
     #[instrument(level = "debug", skip(context, profile), fields(function_name, args))]
     async fn execute_function_call(
         profile: Profile,
-        function: String,
+        function: &str,
         args: String,
-        context: Arc<WasmContext>,
+        context: WasmContext,
     ) -> Result<()> {
         tracing::info!(function, args, "Executing function");
 
@@ -183,7 +165,7 @@ impl ServerManager {
         let arguments: HashMap<String, serde_json::Value> = serde_json::from_str(&args)
             .map_err(|e| {
                 tracing::warn!("Failed to parse arguments as JSON object, using empty map: {e}");
-                crate::error::WasiMcpError::InvalidArguments(
+                WasiMcpError::InvalidArguments(
                     format!("Invalid JSON arguments: {e}. Expected a JSON object with parameter names as keys, e.g., {{\"param1\": \"value1\", \"param2\": \"value2\"}}",),
                 )
             })
@@ -193,21 +175,21 @@ impl ServerManager {
 
         // Parse the function name to extract component name
         let (component_name, _) = function.split_once('.').ok_or_else(|| {
-            crate::error::WasiMcpError::InvalidArguments(format!(
+            WasiMcpError::InvalidArguments(format!(
                 "Function name must be in format 'component.function', got: {function}"
             ))
         })?;
 
         let mut profile = profile.clone();
         profile.components.retain(|k, _| k == component_name);
-        let executor = Self::init(profile, context).await?;
-        let result = executor.execute_function(&function, arguments).await;
+        let mut executor = Self::init(profile, context).await?;
+        let result = executor.execute_function(function, arguments).await;
 
         match result {
             Ok(result) => {
                 let output = serde_json::to_string_pretty(&result).map_err(|e| {
                     tracing::error!("Failed to serialize result: {}", e);
-                    crate::error::WasiMcpError::Json(e)
+                    WasiMcpError::Json(e)
                 })?;
 
                 info!("{output}",);
@@ -221,13 +203,12 @@ impl ServerManager {
         }
     }
 
-    /// List available functions from all components in a configuration file
     #[instrument(
         level = "info",
         skip(context, profile),
         fields(profile_name, functions, components)
     )]
-    async fn list_functions(profile: Profile, context: Arc<WasmContext>) -> Result<()> {
+    async fn list_functions(profile: Profile, context: WasmContext) -> Result<()> {
         let executor = Self::init(profile.clone(), context).await?;
         let tools = executor.get_all_tools()?;
 

@@ -12,19 +12,19 @@ use rmcp::{
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::Mutex;
 use tracing::debug;
 
-/// WASM MCP server with improved error handling and logging
 #[derive(Clone)]
 pub struct WasmMcpServer {
-    pub executor: Arc<WasmExecutor>,
+    pub executor: Arc<Mutex<WasmExecutor>>,
 }
 
 impl WasmMcpServer {
     /// Create a new WASM MCP server
     pub fn new(executor: WasmExecutor) -> Self {
         Self {
-            executor: Arc::new(executor),
+            executor: Arc::new(Mutex::new(executor)),
         }
     }
 
@@ -91,7 +91,7 @@ impl ServerHandler for WasmMcpServer {
         _params: Option<rmcp::model::PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
     ) -> std::result::Result<ListToolsResult, McpError> {
-        let tools = self.executor.get_all_tools().map_err(|e| {
+        let tools = self.executor.lock().await.get_all_tools().map_err(|e| {
             tracing::error!("Failed to create tools: {}", e);
             McpError::internal_error(format!("Failed to create tools: {e}"), None)
         })?;
@@ -110,8 +110,11 @@ impl ServerHandler for WasmMcpServer {
     ) -> std::result::Result<CallToolResult, McpError> {
         let arguments_map = params.arguments.unwrap_or_default();
         let arguments: HashMap<String, serde_json::Value> = arguments_map.into_iter().collect();
+
         let result = self
             .executor
+            .lock()
+            .await
             .execute_function(&params.name, arguments)
             .await
             .map_err(|e| McpError::internal_error(format!("Failed to execute tool: {e}"), None))?;

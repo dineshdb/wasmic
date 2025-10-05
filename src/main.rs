@@ -1,5 +1,4 @@
 use clap::Parser;
-use std::sync::Arc;
 use tracing::error;
 use wasmic::WasiMcpError;
 use wasmic::cli::{Cli, Commands};
@@ -20,7 +19,7 @@ async fn main() -> Result<()> {
 
     tracing::info!("Starting WASI-MCP");
 
-    let context = Arc::new(WasmContext::new()?);
+    let context = WasmContext::new()?;
     let config_path = cli.config.clone().unwrap_or_else(|| {
         dirs::config_dir()
             .unwrap_or_else(|| std::path::PathBuf::from("."))

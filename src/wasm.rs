@@ -3,13 +3,13 @@ use rmcp::model::Tool;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tracing::instrument;
 use wasmtime::{
-    Engine,
-    component::{Component, Linker, types::ComponentItem},
+    Engine, Store,
+    component::{Component, Func, Instance, Linker, Val, types::ComponentItem},
 };
 
 pub struct WasmContext {
     pub linker: Linker<ComponentRunStates>,
-    pub engine: Arc<Engine>,
+    pub engine: Engine,
 }
 
 impl WasmContext {
@@ -17,7 +17,7 @@ impl WasmContext {
         let mut config = wasmtime::Config::new();
         config.async_support(true);
         config.wasm_component_model(true);
-        let engine = Arc::new(Engine::new(&config)?);
+        let engine = Engine::new(&config)?;
         let mut linker: Linker<ComponentRunStates> = Linker::new(&engine);
         wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
         wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)?;
@@ -46,7 +46,7 @@ pub struct InterfaceInfo {
 pub struct ParameterInfo {
     pub name: String,
     pub param_json: serde_json::Value, // JSON schema for the type
-    pub wasm_type: wasmtime::component::Type, // WASM component type for conversion
+    pub wasm_type: wasmtime::component::Type,
     pub position: usize,
 }
 
@@ -54,7 +54,7 @@ pub struct ParameterInfo {
 #[derive(Debug, Clone)]
 pub struct FunctionInfo {
     pub name: String,
-    pub params: Vec<ParameterInfo>, // Function parameters with position info
+    pub params: Vec<ParameterInfo>,
     pub results: Vec<serde_json::Value>, // Function return types/results as JSON
     pub func: Option<wasmtime::component::Func>,
 }
@@ -159,42 +159,69 @@ pub fn get_exports(engine: &Engine, path: &str, item: &ComponentItem) -> Compone
     exports
 }
 
-/// WASM component with improved caching and performance
-#[derive(Clone)]
 pub struct WasmComponent {
     pub name: String,
-    pub engine: Arc<Engine>,
+    pub engine: Engine,
     pub component: Component,
     pub config: crate::config::ComponentConfig, // Store component config
     pub interfaces: HashMap<String, InterfaceInfo>, // Map of interface name to interface info
     pub functions: HashMap<String, FunctionInfo>, // Map of function name to function info for standalone functions
+    pub store: Store<ComponentRunStates>,
 }
 
 impl WasmComponent {
-    /// Create a new WASM component from file path with shared engine (optimized)
-    #[instrument(level = "debug", skip(engine), fields(name, duration_ms))]
-    pub fn new(
+    #[instrument(level = "debug", skip(engine, linker), fields(name, duration_ms))]
+    pub async fn new(
         name: String,
-        engine: Arc<Engine>,
+        engine: Engine,
         config: crate::config::ComponentConfig,
+        linker: &mut Linker<ComponentRunStates>,
     ) -> Result<Self> {
         let start_time = std::time::Instant::now();
         let path = PathBuf::from(config.path.as_deref().expect("path should be provided"));
         let component = Component::from_file(&engine, &path)?;
-        // Extract component info with optimized processing
+
         let (interfaces, functions) = Self::extract_component_info(&engine, &component)?;
+
+        let state = ComponentRunStates::try_from(&config)?;
+        let mut store = Store::new(&engine, state);
+        let instance = linker.instantiate_async(&mut store, &component).await?;
+
+        // Populate function handles
+        let mut functions_with_handles = functions;
+        for (_func_name, func_info) in functions_with_handles.iter_mut() {
+            if let Ok(func_handle) =
+                Self::get_function_handle(&mut store, &instance, &func_info.name)
+            {
+                func_info.func = Some(func_handle);
+            }
+        }
+
+        // Populate interface function handles
+        let mut interfaces_with_handles = interfaces;
+        for interface in interfaces_with_handles.values_mut() {
+            for (_func_name, func_info) in interface.functions.iter_mut() {
+                if let Ok(func_handle) =
+                    Self::get_function_handle(&mut store, &instance, &func_info.name)
+                {
+                    func_info.func = Some(func_handle);
+                }
+            }
+        }
+
         tracing::Span::current().record("duration_ms", start_time.elapsed().as_micros());
         Ok(Self {
             name,
             engine,
             component,
             config,
-            interfaces,
-            functions,
+            interfaces: interfaces_with_handles,
+            functions: functions_with_handles,
+            store,
         })
     }
 
-    /// Extract component information with optimized processing and reduced logging
+    /// Extract component information with optimized processing
     fn extract_component_info(
         engine: &Engine,
         component: &Component,
@@ -233,14 +260,69 @@ impl WasmComponent {
         Ok((interfaces, functions))
     }
 
+    fn get_function_handle(
+        store: &mut Store<ComponentRunStates>,
+        instance: &Instance,
+        func_name: &str,
+    ) -> Result<Func> {
+        if !func_name.contains('.') {
+            // For standalone functions, get the function directly from the top level
+            let func_idx = instance
+                .get_export_index(&mut *store, None, func_name)
+                .ok_or_else(|| {
+                    crate::error::WasiMcpError::FunctionNotFound(func_name.to_string())
+                })?;
+
+            instance.get_func(&mut *store, func_idx).ok_or_else(|| {
+                crate::error::WasiMcpError::Execution(
+                    "Failed to get function reference".to_string(),
+                )
+            })
+        } else {
+            // For interface functions, parse the interface and function names
+            let (interface, function) = match func_name.rsplit_once('.') {
+                Some((interface, function)) => (interface, function),
+                None => {
+                    return Err(crate::error::WasiMcpError::Execution(format!(
+                        "Invalid function name format: {func_name}",
+                    )));
+                }
+            };
+
+            // Get interface index
+            let interface_idx = instance
+                .get_export_index(&mut *store, None, interface)
+                .ok_or_else(|| {
+                    crate::error::WasiMcpError::InterfaceNotFound(interface.to_string())
+                })?;
+
+            // Get function index
+            let func_idx = instance
+                .get_export_index(&mut *store, Some(&interface_idx), function)
+                .ok_or_else(|| {
+                    crate::error::WasiMcpError::FunctionNotFound(format!("{interface}.{function}"))
+                })?;
+
+            instance.get_func(&mut *store, func_idx).ok_or_else(|| {
+                crate::error::WasiMcpError::Execution(
+                    "Failed to get function reference".to_string(),
+                )
+            })
+        }
+    }
+
     /// Get all tools from the component with component description included
-    pub fn get_tools(&self, component_description: Option<&str>) -> Result<Vec<Tool>> {
+    pub fn get_tools(
+        &self,
+        engine: &Engine,
+        component_description: Option<&str>,
+    ) -> Result<Vec<Tool>> {
         let mut tools = Vec::new();
         let ty = self.component.component_type();
 
         // Walk top-level exports and use get_exports to get all information
-        for (name, item) in ty.exports(&self.engine) {
-            let exports = get_exports(&self.engine, name, &item);
+        for (name, item) in ty.exports(engine) {
+            let exports = get_exports(engine, name, &item);
 
             // Process top-level functions
             for func in &exports.functions {
@@ -364,5 +446,15 @@ impl WasmComponent {
 
         // If not found in interfaces, try standalone functions
         self.functions.get(function_name)
+    }
+
+    pub async fn call_async(
+        &mut self,
+        func: &Func,
+        args: &[Val],
+        results: &mut [Val],
+    ) -> Result<()> {
+        func.call_async(&mut self.store, args, results).await?;
+        Ok(())
     }
 }

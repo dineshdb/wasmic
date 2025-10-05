@@ -1,24 +1,20 @@
-use crate::config::ComponentConfig;
+use crate::config::{ComponentConfig, Profile};
 use crate::error::{Result, WasiMcpError};
-use crate::state::ComponentRunStates;
 use crate::utils::transform::{convert_args_to_wasm_values, convert_wasm_results_to_json};
-use crate::wasm::{WasmComponent, WasmContext};
+use crate::wasm::{FunctionInfo, WasmComponent, WasmContext};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Instant;
 use tracing::instrument;
-use wasmtime::*;
 
-/// Unified executor that can handle both single and multiple WASM components
 pub struct WasmExecutor {
-    context: Arc<WasmContext>,
+    context: WasmContext,
     components: HashMap<String, WasmComponent>,
-    profile: crate::config::Profile,
+    profile: Profile,
 }
+
 impl WasmExecutor {
-    /// Create a new UnifiedExecutor with a shared engine and global linker
-    pub fn new(context: Arc<WasmContext>, profile: crate::config::Profile) -> Result<Self> {
+    pub fn new(context: WasmContext, profile: Profile) -> Result<Self> {
         Ok(Self {
             context,
             components: HashMap::new(),
@@ -26,11 +22,16 @@ impl WasmExecutor {
         })
     }
 
-    /// Add a component to the executor
-    #[instrument(level = "debug", skip(self, component), fields(name, tools))]
-    pub async fn add_component(&mut self, name: String, component: WasmComponent) -> Result<()> {
-        tracing::Span::current().record("components", component.get_tools(None)?.len());
-        self.components.insert(name.clone(), component);
+    #[instrument(level = "debug", skip(self, config), fields(name, tools))]
+    pub async fn add_component(&mut self, name: String, config: ComponentConfig) -> Result<()> {
+        let component = WasmComponent::new(
+            name.clone(),
+            self.context.engine.clone(),
+            config,
+            &mut self.context.linker,
+        )
+        .await?;
+        self.components.insert(name, component);
         Ok(())
     }
 
@@ -43,15 +44,14 @@ impl WasmExecutor {
     pub fn get_all_tools(&self) -> Result<Vec<rmcp::model::Tool>> {
         let mut all_tools = Vec::new();
 
-        for (component_name, component) in &self.components {
-            let component_config = self.get_component_config(component_name);
-            let component_description =
-                component_config.and_then(|config| config.description.as_deref());
-            let mut tools = component.get_tools(component_description)?;
+        for (name, component) in &self.components {
+            let config = self.get_component_config(name);
+            let description = config.and_then(|config| config.description.as_deref());
+            let mut tools = component.get_tools(&self.context.engine, description)?;
 
             // Prefix tool names with component name to avoid conflicts
             for tool in &mut tools {
-                tool.name = format!("{}.{}", component_name, tool.name).into();
+                tool.name = format!("{name}.{}", tool.name).into();
             }
 
             all_tools.extend(tools);
@@ -63,7 +63,7 @@ impl WasmExecutor {
     /// Map named arguments to positional arguments based on function signature
     fn map_named_to_positional_arguments(
         &self,
-        function_info: &crate::wasm::FunctionInfo,
+        function_info: &FunctionInfo,
         named_args: &HashMap<String, serde_json::Value>,
     ) -> Result<Vec<serde_json::Value>> {
         let mut positional_args = Vec::with_capacity(function_info.params.len());
@@ -109,96 +109,10 @@ impl WasmExecutor {
         Ok(positional_args)
     }
 
-    /// Create a WASI context and instantiate a component
-    async fn create_component_instance(
-        &self,
-        component: &WasmComponent,
-    ) -> Result<(Store<ComponentRunStates>, wasmtime::component::Instance)> {
-        let state = ComponentRunStates::try_from(&component.config)?;
-        let mut store = Store::new(&self.context.engine, state);
-
-        // Instantiate the component using the global linker asynchronously
-        let instance = self
-            .context
-            .linker
-            .instantiate_async(&mut store, &component.component)
-            .await?;
-
-        Ok((store, instance))
-    }
-
-    pub fn get_function_from_instance(
-        store: &mut Store<ComponentRunStates>,
-        instance: &wasmtime::component::Instance,
-        func_name: &str,
-    ) -> Result<wasmtime::component::Func> {
-        // Check if this is a standalone function (no dots in the name) or interface function
-        let is_standalone = !func_name.contains('.');
-
-        if is_standalone {
-            // For standalone functions, get the function directly from the top level
-            let func_idx = instance
-                .get_export_index(&mut *store, None, func_name)
-                .ok_or_else(|| WasiMcpError::FunctionNotFound(func_name.to_string()))?;
-
-            instance.get_func(&mut *store, func_idx).ok_or_else(|| {
-                WasiMcpError::Execution("Failed to get function reference".to_string())
-            })
-        } else {
-            // For interface functions, parse the interface and function names
-            let (interface, function) = match func_name.rsplit_once('.') {
-                Some((interface, function)) => (interface, function),
-                None => {
-                    return Err(WasiMcpError::Execution(format!(
-                        "Invalid function name format: {func_name}",
-                    )));
-                }
-            };
-
-            // Get interface index
-            let interface_idx = instance
-                .get_export_index(&mut *store, None, interface)
-                .ok_or_else(|| WasiMcpError::InterfaceNotFound(interface.to_string()))?;
-
-            // Get function index
-            let func_idx = instance
-                .get_export_index(&mut *store, Some(&interface_idx), function)
-                .ok_or_else(|| WasiMcpError::FunctionNotFound(format!("{interface}.{function}")))?;
-
-            instance.get_func(&mut *store, func_idx).ok_or_else(|| {
-                WasiMcpError::Execution("Failed to get function reference".to_string())
-            })
-        }
-    }
-
-    /// Execute a function call with proper error handling and result processing
-    async fn execute_function_call(
-        &self,
-        store: &mut Store<ComponentRunStates>,
-        func: wasmtime::component::Func,
-        arguments: &[serde_json::Value],
-        function_info: &crate::wasm::FunctionInfo,
-    ) -> Result<serde_json::Value> {
-        let mut results = Vec::new();
-        for _ in 0..function_info.results.len() {
-            results.push(wasmtime::component::Val::String(String::new()));
-        }
-
-        let args = convert_args_to_wasm_values(arguments, function_info)?;
-        func.call_async(&mut *store, &args, &mut results).await?;
-        if results.is_empty() {
-            return Ok(Value::String(
-                "Successfully executed (no return value)".to_string(),
-            ));
-        }
-
-        convert_wasm_results_to_json(&results)
-    }
-
-    /// Execute a function from any of the managed components with named arguments
+    /// Execute a function from any of the managed components with named arguments (async with direct handles)
     #[instrument(level = "debug", skip(self), fields(tool_name, arguments, duration_ms))]
     pub async fn execute_function(
-        &self,
+        &mut self,
         tool_name: &str,
         arguments: HashMap<String, serde_json::Value>,
     ) -> Result<Value> {
@@ -209,22 +123,43 @@ impl WasmExecutor {
             )));
         };
 
+        // Get function info first
+        let function_info = {
+            let component = self
+                .components
+                .get(component_name)
+                .ok_or_else(|| WasiMcpError::ComponentNotFound(component_name.to_string()))?;
+
+            component
+                .get_function_info(function_name)
+                .ok_or_else(|| WasiMcpError::FunctionNotFound(function_name.to_string()))?
+                .clone()
+        };
+
+        let positional_args = self.map_named_to_positional_arguments(&function_info, &arguments)?;
+        let mut results = Vec::new();
+        for _ in 0..function_info.results.len() {
+            results.push(wasmtime::component::Val::String(String::new()));
+        }
+
+        let args = convert_args_to_wasm_values(&positional_args, &function_info)?;
+
         let component = self
             .components
-            .get(component_name)
+            .get_mut(component_name)
             .ok_or_else(|| WasiMcpError::ComponentNotFound(component_name.to_string()))?;
 
-        let function_info = component
-            .get_function_info(function_name)
-            .ok_or_else(|| WasiMcpError::FunctionNotFound(function_name.to_string()))?;
+        let Some(func) = function_info.func else {
+            return Err(WasiMcpError::FunctionNotFound(function_info.name));
+        };
 
-        // Create component instance
-        let (mut store, instance) = self.create_component_instance(component).await?;
-        let func = Self::get_function_from_instance(&mut store, &instance, &function_info.name)?;
-        let positional_args = self.map_named_to_positional_arguments(function_info, &arguments)?;
-        let result = self
-            .execute_function_call(&mut store, func, &positional_args, function_info)
-            .await?;
+        component.call_async(&func, &args, &mut results).await?;
+        let result = if results.is_empty() {
+            Value::String("Successfully executed (no return value)".to_string())
+        } else {
+            convert_wasm_results_to_json(&results)?
+        };
+
         tracing::Span::current().record("duration_ms", start_time.elapsed().as_millis());
         Ok(result)
     }
