@@ -6,6 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 use tokio::fs as tokio_fs;
 use tokio::io::AsyncWriteExt;
+use tracing::instrument;
 
 /// OCI artifact manager for downloading and caching WASM components
 pub struct OciManager {
@@ -43,6 +44,7 @@ impl OciManager {
     }
 
     /// Download and cache a WASM component from OCI registry with optimized caching
+    #[instrument(level = "debug", skip(self), fields(reference, duration_ms))]
     pub async fn download_wasm_component(&self, reference: &str) -> Result<PathBuf> {
         let start_time = std::time::Instant::now();
 
@@ -65,7 +67,6 @@ impl OciManager {
         tracing::info!("Downloading WASM component from OCI: {}", reference);
 
         // Pull the image content
-        let download_start = std::time::Instant::now();
         let image_content = self
             .client
             .pull(
@@ -83,9 +84,6 @@ impl OciManager {
                 ))
             })?;
 
-        let download_time = download_start.elapsed();
-        tracing::debug!("OCI download took: {:?}", download_time);
-
         // Find the WASM layer
         let wasm_layer = image_content
             .layers
@@ -101,15 +99,10 @@ impl OciManager {
             })?;
 
         // Write the WASM file to cache
-        let write_start = std::time::Instant::now();
         let mut file = tokio_fs::File::create(&cached_path).await?;
         file.write_all(&wasm_layer.data).await?;
 
-        let write_time = write_start.elapsed();
-        tracing::debug!("Cache write took: {write_time:?}",);
-
-        let total_time = start_time.elapsed();
-        tracing::debug!("Cached WASM component to: {cached_path:?} (total: {total_time:?})");
+        tracing::Span::current().record("duration_ms", start_time.elapsed().as_millis());
         Ok(cached_path)
     }
 

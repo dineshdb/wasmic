@@ -6,7 +6,7 @@ use wasmic::cli::{Cli, Commands};
 use wasmic::config::Config;
 use wasmic::error::Result;
 use wasmic::server::{ServerManager, ServerMode};
-use wasmtime::Engine;
+use wasmic::wasm::WasmContext;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -20,10 +20,7 @@ async fn main() -> Result<()> {
 
     tracing::info!("Starting WASI-MCP");
 
-    // Create a single shared engine
-    let mut config = wasmtime::Config::new();
-    config.async_support(true);
-    let engine = Arc::new(Engine::new(&config)?);
+    let context = Arc::new(WasmContext::new()?);
     let config_path = cli.config.clone().unwrap_or_else(|| {
         dirs::config_dir()
             .unwrap_or_else(|| std::path::PathBuf::from("."))
@@ -73,19 +70,16 @@ async fn main() -> Result<()> {
             ServerMode::Mcp {
                 profile,
                 transport: wasmic::server::McpTransport::Http { host, port },
-                engine: engine.clone(),
+                context,
             }
         }
         Commands::Call { function, args } => ServerMode::Call {
             profile,
             function,
             args,
-            engine: engine.clone(),
+            context,
         },
-        Commands::List {} => ServerMode::List {
-            profile,
-            engine: engine.clone(),
-        },
+        Commands::List {} => ServerMode::List { profile, context },
     };
 
     match ServerManager::run(mode).await {

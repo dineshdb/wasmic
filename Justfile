@@ -16,6 +16,7 @@ fmt-check:
 	cargo fmt --all -- --check
 
 lint:
+	cargo check
 	cargo clippy -- -D warnings
 	cargo test
 	cargo machete

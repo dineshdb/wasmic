@@ -1,14 +1,13 @@
-use crate::config::Profile;
 use crate::error::Result;
 use crate::executor::WasmExecutor;
 use crate::mcp::WasmMcpServer;
 use crate::oci::OciManager;
 use crate::wasm::WasmComponent;
+use crate::{config::Profile, wasm::WasmContext};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info, instrument};
-use wasmtime::Engine;
 
 /// MCP transport type
 #[derive(Debug, Clone)]
@@ -18,25 +17,24 @@ pub enum McpTransport {
 }
 
 /// Server mode configuration
-#[derive(Debug)]
 pub enum ServerMode {
     /// Run as MCP server
     Mcp {
         profile: Profile,
         transport: McpTransport,
-        engine: Arc<Engine>,
+        context: Arc<WasmContext>,
     },
     /// Direct function call
     Call {
         profile: Profile,
         function: String,
         args: String,
-        engine: Arc<Engine>,
+        context: Arc<WasmContext>,
     },
     /// List available functions
     List {
         profile: Profile,
-        engine: Arc<Engine>,
+        context: Arc<WasmContext>,
     },
 }
 
@@ -50,21 +48,57 @@ impl ServerManager {
             ServerMode::Mcp {
                 profile,
                 transport,
-                engine,
-            } => Self::run_mcp_server(profile, transport, engine).await,
+                context,
+            } => Self::run_mcp_server(profile, transport, context).await,
             ServerMode::Call {
                 profile,
                 function,
                 args,
-                engine,
-            } => Self::execute_function_call(profile, function, args, engine).await,
-            ServerMode::List { profile, engine } => Self::list_functions(profile, engine).await,
+                context,
+            } => Self::execute_function_call(profile, function, args, context).await,
+            ServerMode::List { profile, context } => Self::list_functions(profile, context).await,
         }
     }
 
     /// Load all components from a profile configuration into an executor (parallel and async)
-    #[instrument(level = "debug", skip(profile, engine), fields(components, duratio_ms))]
-    async fn load(profile: crate::config::Profile, engine: Arc<Engine>) -> Result<WasmExecutor> {
+    #[instrument(
+        level = "debug",
+        skip(profile, context),
+        fields(components, duratio_ms)
+    )]
+    async fn init(
+        profile: crate::config::Profile,
+        context: Arc<WasmContext>,
+    ) -> Result<WasmExecutor> {
+        if profile.components.is_empty() {
+            return Err(crate::error::WasiMcpError::InvalidArguments(
+                "Profile has no components configured".to_string(),
+            ));
+        }
+
+        let start_time = Instant::now();
+        let mut executor = WasmExecutor::new(context.clone(), profile.clone())?;
+
+        let loaded_components = Self::load(&profile, &context).await?;
+        for (name, wasm_component) in loaded_components {
+            executor.add_component(name, wasm_component).await?;
+        }
+
+        tracing::Span::current().record("components", profile.components.len());
+        tracing::Span::current().record("duration_ms", start_time.elapsed().as_millis());
+        Ok(executor)
+    }
+
+    /// Load all components from a profile configuration into an executor (parallel and async)
+    #[instrument(
+        level = "debug",
+        skip(profile, context),
+        fields(components, duratio_ms)
+    )]
+    async fn load(
+        profile: &crate::config::Profile,
+        context: &WasmContext,
+    ) -> Result<Vec<(String, WasmComponent)>> {
         if profile.components.is_empty() {
             return Err(crate::error::WasiMcpError::InvalidArguments(
                 "Profile has no components configured".to_string(),
@@ -72,17 +106,15 @@ impl ServerManager {
         }
 
         let oci_manager = Arc::new(OciManager::new()?);
-        let mut executor = WasmExecutor::new(engine.clone(), profile.clone())?;
-
         // Prepare component loading tasks for parallel execution
         let load_tasks: Vec<_> = profile
             .components
             .iter()
             .map(|(name, component_config)| {
                 let name = name.clone();
-                let component_config = component_config.clone();
+                let mut component_config = component_config.clone();
                 let oci_manager = oci_manager.clone();
-                let engine = engine.clone();
+                let engine = context.engine.clone();
 
                 async move {
                     // Resolve the component reference (handle both local and OCI)
@@ -92,16 +124,10 @@ impl ServerManager {
                             component_config.oci.as_deref(),
                         )
                         .await?;
-
-                    let wasm_component = WasmComponent::new_with_engine(
-                        name.clone(),
-                        &resolved_path,
-                        engine.clone(),
-                    )?;
-                    Ok::<(String, WasmComponent), crate::error::WasiMcpError>((
-                        name,
-                        wasm_component,
-                    ))
+                    component_config.path = Some(resolved_path.to_string_lossy().to_string());
+                    let component =
+                        WasmComponent::new(name.clone(), engine.clone(), component_config)?;
+                    Ok::<(String, WasmComponent), crate::error::WasiMcpError>((name, component))
                 }
             })
             .collect();
@@ -121,22 +147,17 @@ impl ServerManager {
         .into_iter()
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
-        for (name, wasm_component) in loaded_components {
-            executor.add_component(name, wasm_component)?;
-        }
-
-        tracing::Span::current().record("components", profile.components.len());
         tracing::Span::current().record("duration_ms", start_time.elapsed().as_millis());
-        Ok(executor)
+        Ok(loaded_components)
     }
 
     /// Run multiple WASM components from a configuration file in a single MCP server
     async fn run_mcp_server(
         profile: Profile,
         transport: McpTransport,
-        engine: Arc<Engine>,
+        context: Arc<WasmContext>,
     ) -> Result<()> {
-        let executor = Self::load(profile, engine).await?;
+        let executor = Self::init(profile, context).await?;
         let server = WasmMcpServer::new(executor);
 
         match transport {
@@ -149,12 +170,12 @@ impl ServerManager {
     }
 
     /// Execute a direct function call using a configuration profile
-    #[instrument(level = "debug", skip(engine, profile), fields(function_name, args))]
+    #[instrument(level = "debug", skip(context, profile), fields(function_name, args))]
     async fn execute_function_call(
         profile: Profile,
         function: String,
         args: String,
-        engine: Arc<Engine>,
+        context: Arc<WasmContext>,
     ) -> Result<()> {
         tracing::info!(function, args, "Executing function");
 
@@ -179,7 +200,7 @@ impl ServerManager {
 
         let mut profile = profile.clone();
         profile.components.retain(|k, _| k == component_name);
-        let executor = Self::load(profile, engine).await?;
+        let executor = Self::init(profile, context).await?;
         let result = executor.execute_function(&function, arguments).await;
 
         match result {
@@ -203,11 +224,11 @@ impl ServerManager {
     /// List available functions from all components in a configuration file
     #[instrument(
         level = "info",
-        skip(engine, profile),
+        skip(context, profile),
         fields(profile_name, functions, components)
     )]
-    async fn list_functions(profile: Profile, engine: Arc<Engine>) -> Result<()> {
-        let executor = Self::load(profile.clone(), engine).await?;
+    async fn list_functions(profile: Profile, context: Arc<WasmContext>) -> Result<()> {
+        let executor = Self::init(profile.clone(), context).await?;
         let tools = executor.get_all_tools()?;
 
         tracing::Span::current().record("functions", tools.len());

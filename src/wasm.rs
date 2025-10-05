@@ -1,11 +1,30 @@
-use crate::error::Result;
+use crate::{ComponentRunStates, error::Result, utils::wasm::convert_wasm_type_to_json};
 use rmcp::model::Tool;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tracing::instrument;
 use wasmtime::{
     Engine,
-    component::{Component, types::ComponentItem},
+    component::{Component, Linker, types::ComponentItem},
 };
+
+pub struct WasmContext {
+    pub linker: Linker<ComponentRunStates>,
+    pub engine: Arc<Engine>,
+}
+
+impl WasmContext {
+    pub fn new() -> anyhow::Result<Self> {
+        let mut config = wasmtime::Config::new();
+        config.async_support(true);
+        config.wasm_component_model(true);
+        let engine = Arc::new(Engine::new(&config)?);
+        let mut linker: Linker<ComponentRunStates> = Linker::new(&engine);
+        wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
+        wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)?;
+
+        Ok(WasmContext { linker, engine })
+    }
+}
 
 /// Component export information with optimized memory usage
 #[derive(Debug, Clone, Default)]
@@ -37,188 +56,7 @@ pub struct FunctionInfo {
     pub name: String,
     pub params: Vec<ParameterInfo>, // Function parameters with position info
     pub results: Vec<serde_json::Value>, // Function return types/results as JSON
-}
-
-/// Convert a wasmtime Type directly to JSON schema type
-fn convert_wasm_type_to_json(ty: &wasmtime::component::Type) -> serde_json::Value {
-    match ty {
-        wasmtime::component::Type::Bool => serde_json::json!("boolean"),
-        wasmtime::component::Type::Char | wasmtime::component::Type::String => {
-            serde_json::json!("string")
-        }
-        wasmtime::component::Type::S8
-        | wasmtime::component::Type::U8
-        | wasmtime::component::Type::S16
-        | wasmtime::component::Type::U16
-        | wasmtime::component::Type::S32
-        | wasmtime::component::Type::U32
-        | wasmtime::component::Type::S64
-        | wasmtime::component::Type::U64 => serde_json::json!("integer"),
-        wasmtime::component::Type::Float32 | wasmtime::component::Type::Float64 => {
-            serde_json::json!("number")
-        }
-        wasmtime::component::Type::List(list) => {
-            let element_type = convert_wasm_type_to_json(&list.ty());
-            serde_json::json!({
-                "type": "array",
-                "items": element_type
-            })
-        }
-        wasmtime::component::Type::Record(record) => {
-            let mut properties = serde_json::Map::new();
-            let mut required = Vec::new();
-
-            for field in record.fields() {
-                let field_type = convert_wasm_type_to_json(&field.ty);
-                properties.insert(field.name.to_string(), field_type);
-                required.push(field.name);
-            }
-
-            serde_json::json!({
-                "type": "object",
-                "properties": properties,
-                "required": required,
-                "additionalProperties": false
-            })
-        }
-        wasmtime::component::Type::Tuple(tuple) => {
-            let items: Vec<serde_json::Value> = tuple
-                .types()
-                .map(|t| convert_wasm_type_to_json(&t))
-                .collect();
-            serde_json::json!({
-                "type": "array",
-                "items": items,
-                "minItems": items.len(),
-                "maxItems": items.len()
-            })
-        }
-        wasmtime::component::Type::Variant(variant) => {
-            let cases: Vec<serde_json::Value> = variant
-                .cases()
-                .map(|case| {
-                    if let Some(ty) = case.ty {
-                        serde_json::json!({
-                            "type": "object",
-                            "properties": {
-                                case.name: convert_wasm_type_to_json(&ty)
-                            },
-                            "required": [case.name],
-                            "additionalProperties": false
-                        })
-                    } else {
-                        serde_json::json!({
-                            "const": case.name
-                        })
-                    }
-                })
-                .collect();
-
-            serde_json::json!({
-                "oneOf": cases
-            })
-        }
-        wasmtime::component::Type::Enum(enum_ty) => {
-            let names: Vec<&str> = enum_ty.names().collect();
-            serde_json::json!({
-                "type": "string",
-                "enum": names
-            })
-        }
-        wasmtime::component::Type::Option(option) => {
-            let inner_type = convert_wasm_type_to_json(&option.ty());
-            serde_json::json!({
-                "oneOf": [
-                    inner_type,
-                    { "type": "null" }
-                ]
-            })
-        }
-        wasmtime::component::Type::Result(result) => {
-            let ok_type = result.ok().map(|t| convert_wasm_type_to_json(&t));
-            let err_type = result.err().map(|t| convert_wasm_type_to_json(&t));
-
-            match (ok_type, err_type) {
-                (Some(ok), Some(err)) => {
-                    serde_json::json!({
-                        "oneOf": [
-                            { "type": "object", "properties": { "Ok": ok }, "required": ["Ok"] },
-                            { "type": "object", "properties": { "Err": err }, "required": ["Err"] }
-                        ]
-                    })
-                }
-                (Some(ok), None) => {
-                    serde_json::json!({
-                        "oneOf": [
-                            { "type": "object", "properties": { "Ok": ok }, "required": ["Ok"] },
-                            { "type": "null" }
-                        ]
-                    })
-                }
-                (None, Some(err)) => {
-                    serde_json::json!({
-                        "oneOf": [
-                            { "type": "null" },
-                            { "type": "object", "properties": { "Err": err }, "required": ["Err"] }
-                        ]
-                    })
-                }
-                (None, None) => {
-                    serde_json::json!({
-                        "oneOf": [
-                            { "type": "null" },
-                            { "type": "string" }
-                        ]
-                    })
-                }
-            }
-        }
-        wasmtime::component::Type::Flags(flags) => {
-            let names: Vec<&str> = flags.names().collect();
-            serde_json::json!({
-                "type": "array",
-                "items": {
-                    "type": "string",
-                    "enum": names
-                },
-                "uniqueItems": true
-            })
-        }
-        wasmtime::component::Type::Own(_resource) => serde_json::json!("string"),
-        wasmtime::component::Type::Borrow(_resource) => serde_json::json!("string"),
-        wasmtime::component::Type::Future(future) => {
-            if let Some(ty) = future.ty() {
-                serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "pending": { "type": "boolean" },
-                        "value": convert_wasm_type_to_json(&ty)
-                    }
-                })
-            } else {
-                serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "pending": { "type": "boolean" }
-                    }
-                })
-            }
-        }
-        wasmtime::component::Type::Stream(stream) => {
-            if let Some(ty) = stream.ty() {
-                serde_json::json!({
-                    "type": "array",
-                    "items": convert_wasm_type_to_json(&ty)
-                })
-            } else {
-                serde_json::json!({
-                    "type": "array",
-                    "items": { "type": "string" }
-                })
-            }
-        }
-        wasmtime::component::Type::ErrorContext => serde_json::json!("string"),
-    }
+    pub func: Option<wasmtime::component::Func>,
 }
 
 /// Recursively extract exports from a component item with optimized processing and reduced allocations
@@ -234,7 +72,7 @@ pub fn get_exports(engine: &Engine, path: &str, item: &ComponentItem) -> Compone
                 f.results().map(|t| convert_wasm_type_to_json(&t)).collect();
 
             // Create parameter info with position - optimized allocation
-            let params: Vec<ParameterInfo> = f
+            let params = f
                 .params()
                 .enumerate()
                 .map(|(position, (n, t))| {
@@ -252,6 +90,7 @@ pub fn get_exports(engine: &Engine, path: &str, item: &ComponentItem) -> Compone
                 name: path.to_string(),
                 params,
                 results,
+                func: None,
             });
         }
         ComponentItem::CoreFunc(_ft) => {
@@ -321,28 +160,35 @@ pub fn get_exports(engine: &Engine, path: &str, item: &ComponentItem) -> Compone
 }
 
 /// WASM component with improved caching and performance
+#[derive(Clone)]
 pub struct WasmComponent {
     pub name: String,
     pub engine: Arc<Engine>,
     pub component: Component,
+    pub config: crate::config::ComponentConfig, // Store component config
     pub interfaces: HashMap<String, InterfaceInfo>, // Map of interface name to interface info
     pub functions: HashMap<String, FunctionInfo>, // Map of function name to function info for standalone functions
 }
 
 impl WasmComponent {
     /// Create a new WASM component from file path with shared engine (optimized)
-    #[instrument(level = "debug", skip(engine, wasm_path), fields(name, duration_ms))]
-    pub fn new_with_engine(name: String, wasm_path: &PathBuf, engine: Arc<Engine>) -> Result<Self> {
+    #[instrument(level = "debug", skip(engine), fields(name, duration_ms))]
+    pub fn new(
+        name: String,
+        engine: Arc<Engine>,
+        config: crate::config::ComponentConfig,
+    ) -> Result<Self> {
         let start_time = std::time::Instant::now();
-        let component = Component::from_file(&engine, wasm_path)
-            .map_err(crate::error::WasiMcpError::Component)?;
-        tracing::Span::current().record("duration_ms", start_time.elapsed().as_micros());
+        let path = PathBuf::from(config.path.as_deref().expect("path should be provided"));
+        let component = Component::from_file(&engine, &path)?;
         // Extract component info with optimized processing
         let (interfaces, functions) = Self::extract_component_info(&engine, &component)?;
+        tracing::Span::current().record("duration_ms", start_time.elapsed().as_micros());
         Ok(Self {
             name,
             engine,
             component,
+            config,
             interfaces,
             functions,
         })

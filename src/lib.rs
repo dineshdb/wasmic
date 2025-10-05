@@ -11,7 +11,7 @@ pub mod mcp;
 pub mod oci;
 pub mod server;
 pub mod state;
-pub mod transform;
+mod utils;
 pub mod wasm;
 
 // Re-export commonly used types
