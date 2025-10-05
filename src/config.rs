@@ -1,3 +1,4 @@
+use crate::WasiMcpError;
 use crate::error::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -66,19 +67,16 @@ impl Config {
         let content = std::fs::read_to_string(path)?;
 
         let config: Config = serde_yaml::from_str(&content).map_err(|e| {
-            crate::error::WasiMcpError::InvalidArguments(
-                format!("Invalid YAML configuration: {e}",),
-            )
+            WasiMcpError::InvalidArguments(format!("Invalid YAML configuration: {e}",))
         })?;
 
-        tracing::info!(
+        tracing::debug!(
             "Loaded configuration with {} profiles",
             config.profiles.len()
         );
         for (name, profile) in &config.profiles {
             tracing::debug!(
-                "Profile '{}' has {} components",
-                name,
+                "Profile '{name}' has {} components",
                 profile.components.len()
             );
         }

@@ -1,4 +1,6 @@
-use crate::{ComponentRunStates, error::Result, utils::wasm::convert_wasm_type_to_json};
+use crate::{
+    ComponentRunStates, WasiMcpError, error::Result, utils::wasm::convert_wasm_type_to_json,
+};
 use rmcp::model::Tool;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tracing::instrument;
@@ -57,6 +59,89 @@ pub struct FunctionInfo {
     pub params: Vec<ParameterInfo>,
     pub results: Vec<serde_json::Value>, // Function return types/results as JSON
     pub func: Option<wasmtime::component::Func>,
+}
+
+impl From<&FunctionInfo> for Tool {
+    fn from(value: &FunctionInfo) -> Self {
+        let tool_name = value.name.to_string();
+        let description = None;
+        let params = &value.params;
+        let results = &value.results;
+
+        // Create input schema based on function parameters with proper JSON schema types
+        let input_schema = if params.is_empty() {
+            serde_json::json!({
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+            })
+        } else {
+            let mut properties = serde_json::Map::with_capacity(params.len());
+            let mut required = Vec::with_capacity(params.len());
+
+            for param_info in params.iter() {
+                let mut param_schema = serde_json::Map::new();
+
+                // Use the JSON schema directly from param_json
+                if let Some(obj) = param_info.param_json.as_object() {
+                    param_schema.extend(obj.clone());
+                } else {
+                    // Fallback if it's not an object
+                    param_schema.insert("type".to_string(), param_info.param_json.clone());
+                }
+
+                properties.insert(
+                    param_info.name.clone(),
+                    serde_json::Value::Object(param_schema),
+                );
+                required.push(&param_info.name);
+            }
+
+            serde_json::json!({
+                "type": "object",
+                "properties": properties,
+                "required": required,
+                "additionalProperties": false
+            })
+        };
+
+        let output_schema = if results.is_empty() {
+            // Functions with no return value might still produce a success message
+            serde_json::json!({
+                "type": "string",
+                "description": "Execution status message"
+            })
+        } else {
+            // Multiple return values are returned as an object with positional keys
+            let mut properties = serde_json::Map::with_capacity(results.len());
+            for (i, result_type) in results.iter().enumerate() {
+                properties.insert(format!("result_{}", i + 1), result_type.clone());
+            }
+            serde_json::json!({
+                "type": "object",
+                "properties": properties,
+                "required": properties.keys().collect::<Vec<_>>(),
+                "additionalProperties": false
+            })
+        };
+
+        let mut properties = serde_json::Map::with_capacity(results.len());
+        for (i, result_type) in results.iter().enumerate() {
+            properties.insert(format!("result_{}", i + 1), result_type.clone());
+        }
+        Tool {
+            name: tool_name.into(),
+            title: None,
+            description,
+            input_schema: Arc::new(input_schema.as_object().cloned().unwrap_or_default()),
+            output_schema: Some(Arc::new(
+                output_schema.as_object().cloned().unwrap_or_default(),
+            )),
+            annotations: None,
+            icons: None,
+        }
+    }
 }
 
 /// Recursively extract exports from a component item with optimized processing and reduced allocations
@@ -269,21 +354,17 @@ impl WasmComponent {
             // For standalone functions, get the function directly from the top level
             let func_idx = instance
                 .get_export_index(&mut *store, None, func_name)
-                .ok_or_else(|| {
-                    crate::error::WasiMcpError::FunctionNotFound(func_name.to_string())
-                })?;
+                .ok_or_else(|| WasiMcpError::FunctionNotFound(func_name.to_string()))?;
 
             instance.get_func(&mut *store, func_idx).ok_or_else(|| {
-                crate::error::WasiMcpError::Execution(
-                    "Failed to get function reference".to_string(),
-                )
+                WasiMcpError::Execution("Failed to get function reference".to_string())
             })
         } else {
             // For interface functions, parse the interface and function names
             let (interface, function) = match func_name.rsplit_once('.') {
                 Some((interface, function)) => (interface, function),
                 None => {
-                    return Err(crate::error::WasiMcpError::Execution(format!(
+                    return Err(WasiMcpError::Execution(format!(
                         "Invalid function name format: {func_name}",
                     )));
                 }
@@ -292,21 +373,15 @@ impl WasmComponent {
             // Get interface index
             let interface_idx = instance
                 .get_export_index(&mut *store, None, interface)
-                .ok_or_else(|| {
-                    crate::error::WasiMcpError::InterfaceNotFound(interface.to_string())
-                })?;
+                .ok_or_else(|| WasiMcpError::InterfaceNotFound(interface.to_string()))?;
 
             // Get function index
             let func_idx = instance
                 .get_export_index(&mut *store, Some(&interface_idx), function)
-                .ok_or_else(|| {
-                    crate::error::WasiMcpError::FunctionNotFound(format!("{interface}.{function}"))
-                })?;
+                .ok_or_else(|| WasiMcpError::FunctionNotFound(format!("{interface}.{function}")))?;
 
             instance.get_func(&mut *store, func_idx).ok_or_else(|| {
-                crate::error::WasiMcpError::Execution(
-                    "Failed to get function reference".to_string(),
-                )
+                WasiMcpError::Execution("Failed to get function reference".to_string())
             })
         }
     }
@@ -319,6 +394,7 @@ impl WasmComponent {
     ) -> Result<Vec<Tool>> {
         let mut tools = Vec::new();
         let ty = self.component.component_type();
+        let description = component_description.unwrap_or_default().to_string();
 
         // Walk top-level exports and use get_exports to get all information
         for (name, item) in ty.exports(engine) {
@@ -326,113 +402,22 @@ impl WasmComponent {
 
             // Process top-level functions
             for func in &exports.functions {
-                tools.push(Self::create_tool_from_function(
-                    &func.name,
-                    &func.params,
-                    &func.results,
-                    component_description,
-                ));
+                let mut tool = Tool::from(func);
+                tool.description = Some(description.clone().into());
+                tools.push(tool);
             }
 
             // Process interfaces and their functions
             for interface in &exports.interfaces {
-                for (func_name, func_info) in &interface.functions {
-                    tools.push(Self::create_tool_from_function(
-                        func_name,
-                        &func_info.params,
-                        &func_info.results,
-                        component_description,
-                    ));
+                for func_info in interface.functions.values() {
+                    let mut tool = Tool::from(func_info);
+                    tool.description = Some(description.clone().into());
+                    tools.push(tool);
                 }
             }
         }
 
         Ok(tools)
-    }
-
-    /// Create a tool from function information with proper JSON schema generation
-    fn create_tool_from_function(
-        function_name: &str,
-        params: &[ParameterInfo],
-        results: &[serde_json::Value],
-        component_description: Option<&str>,
-    ) -> Tool {
-        let tool_name = function_name.to_string();
-        let description = component_description.unwrap_or_default().to_string();
-
-        // Create input schema based on function parameters with proper JSON schema types
-        let input_schema = if params.is_empty() {
-            serde_json::json!({
-                "type": "object",
-                "properties": {},
-                "required": [],
-                "additionalProperties": false
-            })
-        } else {
-            let mut properties = serde_json::Map::with_capacity(params.len());
-            let mut required = Vec::with_capacity(params.len());
-
-            for param_info in params.iter() {
-                let mut param_schema = serde_json::Map::new();
-
-                // Use the JSON schema directly from param_json
-                if let Some(obj) = param_info.param_json.as_object() {
-                    param_schema.extend(obj.clone());
-                } else {
-                    // Fallback if it's not an object
-                    param_schema.insert("type".to_string(), param_info.param_json.clone());
-                }
-
-                properties.insert(
-                    param_info.name.clone(),
-                    serde_json::Value::Object(param_schema),
-                );
-                required.push(&param_info.name);
-            }
-
-            serde_json::json!({
-                "type": "object",
-                "properties": properties,
-                "required": required,
-                "additionalProperties": false
-            })
-        };
-
-        let output_schema = if results.is_empty() {
-            // Functions with no return value might still produce a success message
-            serde_json::json!({
-                "type": "string",
-                "description": "Execution status message"
-            })
-        } else {
-            // Multiple return values are returned as an object with positional keys
-            let mut properties = serde_json::Map::with_capacity(results.len());
-            for (i, result_type) in results.iter().enumerate() {
-                properties.insert(format!("result_{}", i + 1), result_type.clone());
-            }
-            serde_json::json!({
-                "type": "object",
-                "properties": properties,
-                "required": properties.keys().collect::<Vec<_>>(),
-                "additionalProperties": false
-            })
-        };
-
-        let mut properties = serde_json::Map::with_capacity(results.len());
-        for (i, result_type) in results.iter().enumerate() {
-            properties.insert(format!("result_{}", i + 1), result_type.clone());
-        }
-        Tool {
-            name: tool_name.into(),
-            title: None,
-            description: Some(description.into()),
-            input_schema: Arc::new(input_schema.as_object().cloned().unwrap_or_default()),
-            output_schema: Some(Arc::new(
-                output_schema.as_object().cloned().unwrap_or_default(),
-            )),
-            annotations: None,
-            icons: None,
-        }
     }
 
     /// Get function information by name

@@ -1,3 +1,4 @@
+use crate::WasiMcpError;
 use crate::error::Result;
 use oci_distribution::Reference;
 use oci_distribution::client::{Client, ClientConfig, ClientProtocol};
@@ -34,9 +35,7 @@ impl OciManager {
     fn get_cache_dir() -> Result<PathBuf> {
         let cache_dir = dirs::cache_dir()
             .ok_or_else(|| {
-                crate::error::WasiMcpError::InvalidArguments(
-                    "Could not determine cache directory".to_string(),
-                )
+                WasiMcpError::InvalidArguments("Could not determine cache directory".to_string())
             })?
             .join("wasmic");
 
@@ -49,9 +48,7 @@ impl OciManager {
         let start_time = std::time::Instant::now();
 
         let parsed_ref = Reference::try_from(reference).map_err(|e| {
-            crate::error::WasiMcpError::InvalidArguments(format!(
-                "Invalid OCI reference '{reference}': {e}"
-            ))
+            WasiMcpError::InvalidArguments(format!("Invalid OCI reference '{reference}': {e}"))
         })?;
 
         // Create a unique filename based on the reference and digest
@@ -79,7 +76,7 @@ impl OciManager {
             )
             .await
             .map_err(|e| {
-                crate::error::WasiMcpError::InvalidArguments(format!(
+                WasiMcpError::InvalidArguments(format!(
                     "Failed to pull OCI artifact '{reference}': {e}"
                 ))
             })?;
@@ -93,9 +90,7 @@ impl OciManager {
                     || layer.media_type == "application/wasm"
             })
             .ok_or_else(|| {
-                crate::error::WasiMcpError::InvalidArguments(
-                    "No WASM layer found in OCI artifact".to_string(),
-                )
+                WasiMcpError::InvalidArguments("No WASM layer found in OCI artifact".to_string())
             })?;
 
         // Write the WASM file to cache
@@ -115,10 +110,10 @@ impl OciManager {
         match (component_path, component_oci) {
             (Some(path), None) => Ok(PathBuf::from(path)),
             (None, Some(oci_ref)) => self.download_wasm_component(oci_ref).await,
-            (Some(_), Some(_)) => Err(crate::error::WasiMcpError::InvalidArguments(
+            (Some(_), Some(_)) => Err(WasiMcpError::InvalidArguments(
                 "Cannot specify both 'path' and 'oci' for the same component".to_string(),
             )),
-            (None, None) => Err(crate::error::WasiMcpError::InvalidArguments(
+            (None, None) => Err(WasiMcpError::InvalidArguments(
                 "Must specify either 'path' or 'oci' for component".to_string(),
             )),
         }

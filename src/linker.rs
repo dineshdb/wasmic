@@ -16,13 +16,13 @@ impl TryFrom<&ComponentConfig> for ComponentRunStates {
         if let Some(cwd_path) = &config.cwd {
             let path = Path::new(cwd_path);
             if !path.exists() {
-                return Err(crate::error::WasiMcpError::InvalidArguments(format!(
+                return Err(WasiMcpError::InvalidArguments(format!(
                     "Working directory does not exist: {}",
                     cwd_path
                 )));
             }
             if !path.is_dir() {
-                return Err(crate::error::WasiMcpError::InvalidArguments(format!(
+                return Err(WasiMcpError::InvalidArguments(format!(
                     "Working directory path is not a directory: {}",
                     cwd_path
                 )));
@@ -42,7 +42,7 @@ impl TryFrom<&ComponentConfig> for ComponentRunStates {
 
             // Check if the host path exists
             if !host_path.exists() {
-                return Err(crate::error::WasiMcpError::InvalidArguments(format!(
+                return Err(WasiMcpError::InvalidArguments(format!(
                     "Host path does not exist: {}",
                     mount.host_path
                 )));
@@ -53,7 +53,7 @@ impl TryFrom<&ComponentConfig> for ComponentRunStates {
                 host_path
             } else {
                 host_path.parent().ok_or_else(|| {
-                    crate::error::WasiMcpError::InvalidArguments(format!(
+                    WasiMcpError::InvalidArguments(format!(
                         "Cannot mount file without parent directory: {}",
                         mount.host_path
                     ))
