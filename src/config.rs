@@ -14,11 +14,25 @@ pub struct Config {
     pub profile: Option<String>,
 }
 
-/// Profile configuration containing multiple WASM components
+/// Prompt configuration for use-case-specific guidance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Prompt {
+    /// Human-readable name for the prompt
+    pub name: String,
+    /// Description of what the prompt helps with
+    pub description: String,
+    /// The prompt content with use case guidance
+    pub content: String,
+}
+
+/// Profile configuration containing multiple WASM components and prompts
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
     /// Map of component names to their configurations
     pub components: HashMap<String, ComponentConfig>,
+    /// Map of prompt names to their configurations
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub prompts: HashMap<String, Prompt>,
     /// Optional description of the profile
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,

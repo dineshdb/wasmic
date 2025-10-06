@@ -1,3 +1,4 @@
+use crate::config::Profile;
 use crate::error::Result;
 use crate::executor::WasmExecutor;
 use rmcp::model::ServerCapabilities;
@@ -6,7 +7,11 @@ use rmcp::transport::streamable_http_server::{
 };
 use rmcp::{
     ErrorData as McpError, ServerHandler,
-    model::{CallToolRequestParam, CallToolResult, Content, ListToolsResult, ServerInfo},
+    model::{
+        CallToolRequestParam, CallToolResult, Content, GetPromptRequestParam, GetPromptResult,
+        ListPromptsResult, ListToolsResult, Prompt as McpPrompt, PromptMessage,
+        PromptMessageContent, PromptMessageRole, ServerInfo,
+    },
     service::{RequestContext, RoleServer},
 };
 use std::collections::HashMap;
@@ -18,13 +23,15 @@ use tracing::debug;
 #[derive(Clone)]
 pub struct WasmMcpServer {
     pub executor: Arc<Mutex<WasmExecutor>>,
+    pub profile: Arc<Profile>,
 }
 
 impl WasmMcpServer {
     /// Create a new WASM MCP server
-    pub fn new(executor: WasmExecutor) -> Self {
+    pub fn new(executor: WasmExecutor, config: Profile) -> Self {
         Self {
             executor: Arc::new(Mutex::new(executor)),
+            profile: Arc::new(config),
         }
     }
 
@@ -66,6 +73,7 @@ impl ServerHandler for WasmMcpServer {
             protocol_version: rmcp::model::ProtocolVersion::V_2024_11_05,
             capabilities: ServerCapabilities {
                 tools: Some(rmcp::model::ToolsCapability { list_changed: Some(true) }),
+                prompts: Some(rmcp::model::PromptsCapability { list_changed: Some(true) }),
                 ..Default::default()
             },
             server_info: rmcp::model::Implementation {
@@ -124,5 +132,53 @@ impl ServerHandler for WasmMcpServer {
         })?;
         debug!("Tool result: {}", content);
         Ok(CallToolResult::success(vec![Content::text(content)]))
+    }
+
+    /// List available prompts
+    async fn list_prompts(
+        &self,
+        _params: Option<rmcp::model::PaginatedRequestParam>,
+        _context: RequestContext<RoleServer>,
+    ) -> std::result::Result<ListPromptsResult, McpError> {
+        let mut prompts = Vec::new();
+
+        for (prompt_id, prompt) in &self.profile.prompts {
+            prompts.push(McpPrompt {
+                name: prompt_id.clone(),
+                description: Some(prompt.description.clone()),
+                arguments: Some(Vec::new()), // Static prompts with no arguments
+                title: None,
+                icons: None,
+            });
+        }
+
+        Ok(ListPromptsResult {
+            prompts,
+            next_cursor: None,
+        })
+    }
+
+    /// Get a specific prompt
+    async fn get_prompt(
+        &self,
+        params: GetPromptRequestParam,
+        _context: RequestContext<RoleServer>,
+    ) -> std::result::Result<GetPromptResult, McpError> {
+        if let Some(prompt) = self.profile.prompts.get(&params.name) {
+            return Ok(GetPromptResult {
+                description: Some(prompt.description.clone()),
+                messages: vec![PromptMessage {
+                    role: PromptMessageRole::User,
+                    content: PromptMessageContent::Text {
+                        text: prompt.content.clone(),
+                    },
+                }],
+            });
+        }
+
+        Err(McpError::invalid_params(
+            format!("Prompt '{}' not found", params.name),
+            None,
+        ))
     }
 }

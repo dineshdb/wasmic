@@ -3,7 +3,10 @@ use crate::executor::WasmExecutor;
 use crate::mcp::WasmMcpServer;
 use crate::oci::OciManager;
 use crate::{ComponentConfig, WasiMcpError};
-use crate::{config::Profile, wasm::WasmContext};
+use crate::{
+    config::Profile,
+    wasm::WasmContext,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -140,8 +143,8 @@ impl ServerManager {
         transport: McpTransport,
         context: WasmContext,
     ) -> Result<()> {
-        let executor = Self::init(profile, context).await?;
-        let server = WasmMcpServer::new(executor);
+        let executor = Self::init(profile.clone(), context).await?;
+        let server = WasmMcpServer::new(executor, profile);
 
         match transport {
             McpTransport::Http { host, port } => {

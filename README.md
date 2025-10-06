@@ -70,27 +70,6 @@ cd wasmic
 just install
 ```
 
-## Configuration
-
-### Default Configuration File
-
-The default configuration file is `config.yaml` in the project root. It defines:
-
-- Profiles for different environments
-- Component configurations
-- OCI registry settings
-- MCP server settings
-
-### Configuration Locations
-
-The wasmic CLI looks for configuration files in the following order:
-
-1. Command-line argument (`--config`)
-2. Environment variable (`WASIC_CONFIG`)
-3. Default locations:
-   - Linux/macOS: `~/.config/wasmic/config.yaml`
-   - macOS: `~/Library/Application Support/wasmic/config.yaml`
-
 ### Cache Folder
 
 Wasic uses a cache folder for storing downloaded OCI artifacts and other
@@ -117,6 +96,15 @@ wasmic --config config.yaml call --function "fetch.fetch" --args '{"url":"https:
 
 ### Configuration
 
+The default configuration file is `config.yaml` in the project root. The wasmic
+CLI looks for configuration files in the following order:
+
+1. Command-line argument (`--config`)
+2. Environment variable (`WASIC_CONFIG`)
+3. Default locations:
+   - Linux/macOS: `~/.config/wasmic/config.yaml`
+   - macOS: `~/Library/Application Support/wasmic/config.yaml`
+
 Create a `config.yaml` file to define your components:
 
 ```yaml
@@ -128,40 +116,27 @@ profiles:
         config:
           timezone: "UTC"
       fetch:
-        path: target/wasm32-wasip2/release/fetch.wasm
-```
+        oci: ghcr.io/dineshdb/wasi-components/fetch:latest
+    prompts:
+      research:
+        name: "Web Research"
+        description: "Research a topic"
+        content: |
+          # Research a topic
 
-Or use OCI references:
+          Use this workflow to monitor external APIs and track their performance:
 
-```yaml
-profiles:
-  default:
-    components:
-      time:
-        oci: ghcr.io/dineshdb/wasmic-components/time:v0.1.0
-        config:
-          timezone: "UTC"
-      fetch:
-        oci: ghcr.io/dineshdb/wasmic-components/fetch:v0.1.0
-```
-
-### Building Components
-
-```bash
-# Build all WASM components
-just build
-
-# Build specific component
-just _build time
-just _build fetch
+          ## Tools
+          - brave_search for searching the web. You can do multiple searches on a topic before responding
+          - fetch.fetch for fetching links directly
 ```
 
 ## MCP Server Usage
 
 ### Running as MCP Server
 
-Wasic can run as a standalone MCP server that exposes WASM components as MCP
-tools:
+Wasmic can run as a standalone MCP server that exposes WASM components as MCP
+tools and prompts:
 
 ```bash
 # Start MCP server with default config
@@ -173,38 +148,6 @@ wasmic mcp --config /path/to/config.yaml
 # Start on specific host and port
 wasmic mcp --http 0.0.0.0:8080
 ```
-
-### MCP Integration
-
-Wasic integrates with MCP (Model Context Protocol) to expose WASM components as
-tools that can be used by MCP clients. The server automatically:
-
-- Loads components from the configuration
-- Generates tool definitions based on WIT interfaces
-- Handles tool execution requests
-- Manages component lifecycle and state
-
-## Example Components
-
-### Time Component
-
-- Function: `get-current-time`
-- Returns: Current time as string
-- Configurable timezone support
-
-### Fetch Component
-
-- Function: `fetch`
-- Input: URL string
-- Returns: HTTP response content as string
-
-## Dependencies
-
-- **wkg**: For OCI artifact pulling
-- **wasm-tools**: For WASM component manipulation
-- **wasmtime**: For WASM runtime execution
-- **rmcp**: For MCP server functionality
-- **clap**: For command-line interface
 
 ## Development
 
