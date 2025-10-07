@@ -1,4 +1,4 @@
-use crate::config::Profile;
+use crate::config::Config;
 use crate::error::Result;
 use crate::executor::WasmExecutor;
 use rmcp::model::ServerCapabilities;
@@ -23,15 +23,15 @@ use tracing::debug;
 #[derive(Clone)]
 pub struct WasmMcpServer {
     pub executor: Arc<Mutex<WasmExecutor>>,
-    pub profile: Arc<Profile>,
+    pub config: Arc<Config>,
 }
 
 impl WasmMcpServer {
     /// Create a new WASM MCP server
-    pub fn new(executor: WasmExecutor, config: Profile) -> Self {
+    pub fn new(executor: WasmExecutor, config: Config) -> Self {
         Self {
             executor: Arc::new(Mutex::new(executor)),
-            profile: Arc::new(config),
+            config: Arc::new(config),
         }
     }
 
@@ -142,7 +142,7 @@ impl ServerHandler for WasmMcpServer {
     ) -> std::result::Result<ListPromptsResult, McpError> {
         let mut prompts = Vec::new();
 
-        for (prompt_id, prompt) in &self.profile.prompts {
+        for (prompt_id, prompt) in &self.config.prompts {
             prompts.push(McpPrompt {
                 name: prompt_id.clone(),
                 description: Some(prompt.description.clone()),
@@ -164,7 +164,7 @@ impl ServerHandler for WasmMcpServer {
         params: GetPromptRequestParam,
         _context: RequestContext<RoleServer>,
     ) -> std::result::Result<GetPromptResult, McpError> {
-        if let Some(prompt) = self.profile.prompts.get(&params.name) {
+        if let Some(prompt) = self.config.prompts.get(&params.name) {
             return Ok(GetPromptResult {
                 description: Some(prompt.description.clone()),
                 messages: vec![PromptMessage {

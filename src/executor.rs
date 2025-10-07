@@ -1,4 +1,4 @@
-use crate::config::{ComponentConfig, Profile};
+use crate::config::{ComponentConfig, Config};
 use crate::error::{Result, WasiMcpError};
 use crate::utils::transform::{convert_args_to_wasm_values, convert_wasm_results_to_json};
 use crate::wasm::{FunctionInfo, WasmComponent, WasmContext};
@@ -10,15 +10,15 @@ use tracing::instrument;
 pub struct WasmExecutor {
     context: WasmContext,
     components: HashMap<String, WasmComponent>,
-    profile: Profile,
+    config: Config,
 }
 
 impl WasmExecutor {
-    pub fn new(context: WasmContext, profile: Profile) -> Result<Self> {
+    pub fn new(context: WasmContext, config: Config) -> Result<Self> {
         Ok(Self {
             context,
             components: HashMap::new(),
-            profile,
+            config,
         })
     }
 
@@ -37,7 +37,7 @@ impl WasmExecutor {
 
     /// Get component configuration for a specific component
     fn get_component_config(&self, component_name: &str) -> Option<&ComponentConfig> {
-        self.profile.components.get(component_name)
+        self.config.components.get(component_name)
     }
 
     /// Get all tools from all components

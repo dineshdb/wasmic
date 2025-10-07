@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use tempfile::TempDir;
-use wasmic::config::{ComponentConfig, Profile, VolumeMount};
+use wasmic::config::{ComponentConfig, Config, VolumeMount};
 use wasmic::linker::create_wasi_context;
 
 #[test]
@@ -42,14 +42,15 @@ fn test_create_wasi_context_with_volume_mounts() {
         },
     );
 
-    // Create a profile with the component
-    let profile = Profile {
+    // Create a config with the component
+    let config = Config {
         components,
+        prompts: HashMap::new(),
         description: None,
     };
 
     // Test creating WASI context with volume mounts
-    let component_config = profile.components.get("test_component").unwrap();
+    let component_config = config.components.get("test_component").unwrap();
     let result = create_wasi_context(component_config);
     assert!(
         result.is_ok(),
@@ -87,14 +88,15 @@ fn test_create_wasi_context_with_invalid_path() {
         },
     );
 
-    // Create a profile with the component
-    let profile = Profile {
+    // Create a config with the component
+    let config = Config {
         components,
+        prompts: HashMap::new(),
         description: None,
     };
 
     // Test creating WASI context with invalid volume mounts
-    let component_config = profile.components.get("test_component").unwrap();
+    let component_config = config.components.get("test_component").unwrap();
     let result = create_wasi_context(component_config);
     assert!(
         result.is_err(),
@@ -119,14 +121,15 @@ fn test_create_wasi_context_with_empty_mounts() {
         },
     );
 
-    // Create a profile with the component
-    let profile = Profile {
+    // Create a config with the component
+    let config = Config {
         components,
+        prompts: HashMap::new(),
         description: None,
     };
 
     // Test creating WASI context with no volume mounts
-    let component_config = profile.components.get("test_component").unwrap();
+    let component_config = config.components.get("test_component").unwrap();
     let result = create_wasi_context(component_config);
     assert!(
         result.is_ok(),
