@@ -47,7 +47,7 @@ call-time:
 	cargo run -- call --config config.yaml --function "time.get-current-time" --args "{}"
 
 call-fetch:
-	cargo run -- call --config config.yaml --function "fetch.fetch" --args '{"url":"https://httpbin.org/get"}'
+	cargo run -- call --config config.yaml --function "fetch.fetch" --args '{"url":"https://httpbin.org/get", "headers":[]}'
 
 list:
 	cargo run -- --config config.yaml list

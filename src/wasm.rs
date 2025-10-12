@@ -265,10 +265,10 @@ impl WasmComponent {
         let start_time = std::time::Instant::now();
         let path = PathBuf::from(config.path.as_deref().expect("path should be provided"));
         let component = Component::from_file(&engine, &path)?;
+        let state = ComponentRunStates::try_from(&config)?;
 
         let (interfaces, functions) = Self::extract_component_info(&engine, &component)?;
 
-        let state = ComponentRunStates::try_from(&config)?;
         let mut store = Store::new(&engine, state);
         let instance = linker.instantiate_async(&mut store, &component).await?;
 

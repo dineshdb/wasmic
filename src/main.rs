@@ -27,16 +27,6 @@ async fn main() -> Result<()> {
             .join("config.yaml")
     });
     let config = Config::from_file(&config_path)?;
-    let profile = config
-        .profiles
-        .get(&cli.profile)
-        .ok_or_else(|| {
-            WasiMcpError::InvalidArguments(format!(
-                "Profile '{}' not found in configuration",
-                cli.profile
-            ))
-        })?
-        .clone();
     let mode = match cli.command {
         Commands::Mcp { http } => {
             // Parse host:port string
@@ -61,24 +51,24 @@ async fn main() -> Result<()> {
             };
 
             tracing::debug!(
-                "MCP HTTP mode - profile: {:?}, host: {}, port: {}",
-                profile,
+                "MCP HTTP mode - config: {:?}, host: {}, port: {}",
+                config,
                 host,
                 port
             );
             ServerMode::Mcp {
-                profile,
+                config,
                 transport: wasmic::server::McpTransport::Http { host, port },
                 context,
             }
         }
         Commands::Call { function, args } => ServerMode::Call {
-            profile,
+            config,
             function,
             args,
             context,
         },
-        Commands::List {} => ServerMode::List { profile, context },
+        Commands::List {} => ServerMode::List { config, context },
     };
 
     match ServerManager::run(mode).await {

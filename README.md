@@ -108,27 +108,23 @@ CLI looks for configuration files in the following order:
 Create a `config.yaml` file to define your components:
 
 ```yaml
-profiles:
-  default:
-    components:
-      time:
-        path: target/wasm32-wasip2/release/time.wasm
-        config:
-          timezone: "UTC"
-      fetch:
-        oci: ghcr.io/dineshdb/wasi-components/fetch:latest
-    prompts:
-      research:
-        name: "Web Research"
-        description: "Research a topic"
-        content: |
-          # Research a topic
+components:
+  time:
+    path: target/wasm32-wasip2/release/time.wasm
+    config:
+      timezone: "UTC"
+  fetch:
+    oci: ghcr.io/dineshdb/wasi-components/fetch:latest
+prompts:
+  research:
+    name: "Web Research"
+    description: "Research a topic"
+    content: |
+      # Research a topic
 
-          Use this workflow to monitor external APIs and track their performance:
-
-          ## Tools
-          - brave_search for searching the web. You can do multiple searches on a topic before responding
-          - fetch.fetch for fetching links directly
+      ## Tools
+      - brave_search for searching the web. You can do multiple searches on a topic before responding
+      - fetch.fetch for fetching links directly
 ```
 
 ## MCP Server Usage

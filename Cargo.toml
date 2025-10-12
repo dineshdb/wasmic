@@ -1,6 +1,6 @@
 [package]
 name = "wasmic"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "A CLI tool for managing WASI components and running them as MCP servers"
 authors = ["Dinesh Bhattarai <dineshdb@dbhattarai.info.np>"]

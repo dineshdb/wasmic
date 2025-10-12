@@ -7,11 +7,16 @@ use std::path::PathBuf;
 /// Configuration file structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Profile definitions
-    pub profiles: HashMap<String, Profile>,
+    /// Components configuration
+    pub components: HashMap<String, ComponentConfig>,
 
-    /// Currently active profile name
-    pub profile: Option<String>,
+    /// Prompts configuration
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub prompts: HashMap<String, Prompt>,
+
+    /// Optional description of the configuration
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// Prompt configuration for use-case-specific guidance
@@ -23,19 +28,6 @@ pub struct Prompt {
     pub description: String,
     /// The prompt content with use case guidance
     pub content: String,
-}
-
-/// Profile configuration containing multiple WASM components and prompts
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Profile {
-    /// Map of component names to their configurations
-    pub components: HashMap<String, ComponentConfig>,
-    /// Map of prompt names to their configurations
-    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
-    pub prompts: HashMap<String, Prompt>,
-    /// Optional description of the profile
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
 }
 
 /// Volume mount configuration for WASI filesystem access
@@ -85,15 +77,10 @@ impl Config {
         })?;
 
         tracing::debug!(
-            "Loaded configuration with {} profiles",
-            config.profiles.len()
+            prompts = config.prompts.len(),
+            components = config.components.len(),
+            "Loaded configuration"
         );
-        for (name, profile) in &config.profiles {
-            tracing::debug!(
-                "Profile '{name}' has {} components",
-                profile.components.len()
-            );
-        }
 
         Ok(config)
     }

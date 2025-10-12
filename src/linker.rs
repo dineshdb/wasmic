@@ -1,6 +1,5 @@
 use crate::WasiMcpError;
 use crate::config::ComponentConfig;
-use crate::error::Result;
 use crate::state::ComponentRunStates;
 use std::path::Path;
 use wasmtime_wasi::WasiCtxBuilder;
@@ -89,9 +88,4 @@ impl TryFrom<&ComponentConfig> for ComponentRunStates {
             http_ctx: wasmtime_wasi_http::WasiHttpCtx::new(),
         })
     }
-}
-
-/// Create a WASI context for component execution with volume mounts and environment variables
-pub fn create_wasi_context(config: &ComponentConfig) -> Result<ComponentRunStates> {
-    ComponentRunStates::try_from(config)
 }

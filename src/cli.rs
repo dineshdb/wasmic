@@ -7,10 +7,6 @@ use clap::{Parser, Subcommand, command};
 #[command(about = "A tool to expose WASM components as MCP servers")]
 #[command(version, propagate_version = true)]
 pub struct Cli {
-    /// Profile name to use when using config (defaults to "default")
-    #[arg(long, default_value = "default", global = true)]
-    pub profile: String,
-
     /// Path to the configuration file (required)
     #[arg(short, long, global = true)]
     pub config: Option<PathBuf>,
