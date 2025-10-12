@@ -1,6 +1,6 @@
 use wasmtime::component::ResourceTable;
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
-use wasmtime_wasi_http::WasiHttpCtx;
+use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 
 pub struct ComponentRunStates {
     // These two are required basically as a standard way to enable the impl of IoView and
@@ -32,7 +32,7 @@ impl WasiView for ComponentRunStates {
     }
 }
 
-impl wasmtime_wasi_http::WasiHttpView for ComponentRunStates {
+impl WasiHttpView for ComponentRunStates {
     fn ctx(&mut self) -> &mut WasiHttpCtx {
         &mut self.http_ctx
     }

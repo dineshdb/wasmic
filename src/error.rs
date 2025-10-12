@@ -1,9 +1,9 @@
 use thiserror::Error;
 
-pub type Result<T> = std::result::Result<T, WasiMcpError>;
+pub type WasmicResult<T> = std::result::Result<T, WasmicError>;
 
 #[derive(Error, Debug)]
-pub enum WasiMcpError {
+pub enum WasmicError {
     #[error("WASM component error: {0}")]
     Component(#[from] wasmtime::Error),
 
@@ -35,8 +35,8 @@ pub enum WasiMcpError {
     UnexpectedExpected(String, String),
 }
 
-impl From<WasiMcpError> for rmcp::ErrorData {
-    fn from(err: WasiMcpError) -> Self {
+impl From<WasmicError> for rmcp::ErrorData {
+    fn from(err: WasmicError) -> Self {
         rmcp::ErrorData::internal_error(err.to_string(), None)
     }
 }

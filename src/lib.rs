@@ -15,6 +15,6 @@ mod utils;
 pub mod wasm;
 
 // Re-export commonly used types
-pub use config::{ComponentConfig, Config, VolumeMount};
-pub use error::{Result, WasiMcpError};
+pub use config::{ComponentConfig, Config, MiddlewareConfig, VolumeMount};
+pub use error::{WasmicError, WasmicResult};
 pub use state::ComponentRunStates;

@@ -1,5 +1,5 @@
-use crate::WasiMcpError;
-use crate::error::Result;
+use crate::WasmicError;
+use crate::error::WasmicResult;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -9,6 +9,10 @@ use std::path::PathBuf;
 pub struct Config {
     /// Components configuration
     pub components: HashMap<String, ComponentConfig>,
+
+    /// Global authentication middleware name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth: Option<MiddlewareConfig>,
 
     /// Prompts configuration
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
@@ -42,6 +46,23 @@ pub struct VolumeMount {
     pub read_only: bool,
 }
 
+/// Middleware configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MiddlewareConfig {
+    /// Path to the local WASM component file (mutually exclusive with oci)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// OCI reference for the WASM component (mutually exclusive with path)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oci: Option<String>,
+    /// Environment variables for the middleware
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub env: HashMap<String, String>,
+    /// Optional description of the middleware
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
 /// Individual component configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentConfig {
@@ -69,11 +90,11 @@ pub struct ComponentConfig {
 
 impl Config {
     /// Load configuration from a YAML file
-    pub fn from_file(path: &PathBuf) -> Result<Self> {
+    pub fn from_file(path: &PathBuf) -> WasmicResult<Self> {
         let content = std::fs::read_to_string(path)?;
 
         let config: Config = serde_yaml::from_str(&content).map_err(|e| {
-            WasiMcpError::InvalidArguments(format!("Invalid YAML configuration: {e}",))
+            WasmicError::InvalidArguments(format!("Invalid YAML configuration: {e}",))
         })?;
 
         tracing::debug!(

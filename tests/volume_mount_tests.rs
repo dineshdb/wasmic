@@ -45,6 +45,7 @@ fn test_create_wasi_context_with_volume_mounts() {
     // Create a config with the component
     let config = Config {
         components,
+        auth: None,
         prompts: HashMap::new(),
         description: None,
     };
@@ -91,6 +92,7 @@ fn test_create_wasi_context_with_invalid_path() {
     // Create a config with the component
     let config = Config {
         components,
+        auth: None,
         prompts: HashMap::new(),
         description: None,
     };
@@ -124,6 +126,7 @@ fn test_create_wasi_context_with_empty_mounts() {
     // Create a config with the component
     let config = Config {
         components,
+        auth: None,
         prompts: HashMap::new(),
         description: None,
     };

@@ -1,8 +1,8 @@
-use crate::error::Result;
+use crate::error::WasmicResult;
 use crate::executor::WasmExecutor;
 use crate::mcp::WasmMcpServer;
 use crate::oci::OciManager;
-use crate::{ComponentConfig, WasiMcpError};
+use crate::{ComponentConfig, WasmicError};
 use crate::{config::Config, wasm::WasmContext};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -42,7 +42,7 @@ pub struct ServerManager;
 
 impl ServerManager {
     /// Run the server in the specified mode
-    pub async fn run(mode: ServerMode) -> Result<()> {
+    pub async fn run(mode: ServerMode) -> WasmicResult<()> {
         match mode {
             ServerMode::Mcp {
                 config,
@@ -64,9 +64,9 @@ impl ServerManager {
         skip(config, context),
         fields(components, duration_ms)
     )]
-    async fn init(config: Config, context: WasmContext) -> Result<WasmExecutor> {
+    async fn init(config: Config, context: WasmContext) -> WasmicResult<WasmExecutor> {
         if config.components.is_empty() {
-            return Err(WasiMcpError::InvalidArguments(
+            return Err(WasmicError::InvalidArguments(
                 "Configuration has no components configured".to_string(),
             ));
         }
@@ -86,9 +86,9 @@ impl ServerManager {
 
     /// Load all components from a configuration into an executor (parallel and async)
     #[instrument(level = "debug", skip(config), fields(components, duratio_ms))]
-    async fn load(config: &Config) -> Result<Vec<(String, ComponentConfig)>> {
+    async fn load(config: &Config) -> WasmicResult<Vec<(String, ComponentConfig)>> {
         if config.components.is_empty() {
-            return Err(WasiMcpError::InvalidArguments(
+            return Err(WasmicError::InvalidArguments(
                 "Configuration has no components configured".to_string(),
             ));
         }
@@ -112,7 +112,7 @@ impl ServerManager {
                         )
                         .await?;
                     component_config.path = Some(resolved_path.to_string_lossy().to_string());
-                    Ok::<(String, ComponentConfig), WasiMcpError>((name, component_config))
+                    Ok::<(String, ComponentConfig), WasmicError>((name, component_config))
                 }
             })
             .collect();
@@ -126,7 +126,7 @@ impl ServerManager {
                 .collect::<Vec<_>>(),
         )
         .await
-        .map_err(|e| WasiMcpError::Execution(format!("Component loading task failed: {e}")))?
+        .map_err(|e| WasmicError::Execution(format!("Component loading task failed: {e}")))?
         .into_iter()
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
@@ -139,9 +139,9 @@ impl ServerManager {
         config: Config,
         transport: McpTransport,
         context: WasmContext,
-    ) -> Result<()> {
+    ) -> WasmicResult<()> {
         let executor = Self::init(config.clone(), context).await?;
-        let server = WasmMcpServer::new(executor, config);
+        let server = WasmMcpServer::new_with_auth(executor, config).await?;
 
         match transport {
             McpTransport::Http { host, port } => {
@@ -158,14 +158,14 @@ impl ServerManager {
         function: &str,
         args: String,
         context: WasmContext,
-    ) -> Result<()> {
+    ) -> WasmicResult<()> {
         tracing::info!(function, args, "Executing function");
 
         // Parse arguments as named arguments (JSON object)
         let arguments: HashMap<String, serde_json::Value> = serde_json::from_str(&args)
             .map_err(|e| {
                 tracing::warn!("Failed to parse arguments as JSON object, using empty map: {e}");
-                WasiMcpError::InvalidArguments(
+                WasmicError::InvalidArguments(
                     format!("Invalid JSON arguments: {e}. Expected a JSON object with parameter names as keys, e.g., {{\"param1\": \"value1\", \"param2\": \"value2\"}}",),
                 )
             })
@@ -175,7 +175,7 @@ impl ServerManager {
 
         // Parse the function name to extract component name
         let (component_name, _) = function.split_once('.').ok_or_else(|| {
-            WasiMcpError::InvalidArguments(format!(
+            WasmicError::InvalidArguments(format!(
                 "Function name must be in format 'component.function', got: {function}"
             ))
         })?;
@@ -189,7 +189,7 @@ impl ServerManager {
             Ok(result) => {
                 let output = serde_json::to_string_pretty(&result).map_err(|e| {
                     tracing::error!("Failed to serialize result: {}", e);
-                    WasiMcpError::Json(e)
+                    WasmicError::Json(e)
                 })?;
 
                 info!("{output}",);
@@ -204,7 +204,7 @@ impl ServerManager {
     }
 
     #[instrument(level = "debug", skip(context, config), fields(functions, components))]
-    async fn list_functions(config: Config, context: WasmContext) -> Result<()> {
+    async fn list_functions(config: Config, context: WasmContext) -> WasmicResult<()> {
         let executor = Self::init(config.clone(), context).await?;
         let tools = executor.get_all_tools()?;
 

@@ -1,37 +1,69 @@
-use crate::config::{ComponentConfig, Config};
-use crate::error::{Result, WasiMcpError};
+use crate::config::{ComponentConfig, Config, MiddlewareConfig};
+use crate::error::{WasmicError, WasmicResult};
 use crate::utils::transform::{convert_args_to_wasm_values, convert_wasm_results_to_json};
 use crate::wasm::{FunctionInfo, WasmComponent, WasmContext};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::Instant;
 use tracing::instrument;
+use wasmtime::Store;
+use wasmtime::component::Component;
+use wasmtime_wasi_http::bindings::ProxyPre;
 
 pub struct WasmExecutor {
-    context: WasmContext,
+    pub context: WasmContext,
     components: HashMap<String, WasmComponent>,
     config: Config,
+    pub middlewares: HashMap<String, ProxyMiddleware>,
+}
+
+use crate::ComponentRunStates;
+
+#[derive(Clone)]
+pub struct ProxyMiddleware {
+    pub pre: ProxyPre<ComponentRunStates>,
 }
 
 impl WasmExecutor {
-    pub fn new(context: WasmContext, config: Config) -> Result<Self> {
+    pub fn new(context: WasmContext, config: Config) -> WasmicResult<Self> {
         Ok(Self {
             context,
             components: HashMap::new(),
             config,
+            middlewares: HashMap::new(),
         })
     }
 
     #[instrument(level = "debug", skip(self, config), fields(name, tools))]
-    pub async fn add_component(&mut self, name: String, config: ComponentConfig) -> Result<()> {
+    pub async fn add_component(
+        &mut self,
+        name: String,
+        config: ComponentConfig,
+    ) -> WasmicResult<()> {
         let component = WasmComponent::new(
             name.clone(),
             self.context.engine.clone(),
-            config,
+            config.clone(),
             &mut self.context.linker,
         )
         .await?;
         self.components.insert(name, component);
+        Ok(())
+    }
+
+    /// Add a middleware component to the executor
+    #[instrument(level = "debug", skip(self, config), fields(name, tools))]
+    pub async fn add_middleware(
+        &mut self,
+        name: String,
+        config: MiddlewareConfig,
+    ) -> WasmicResult<()> {
+        let path = PathBuf::from(config.path.as_deref().expect("path should be provided"));
+        let component = Component::from_file(&self.context.engine, &path)?;
+        let pre = ProxyPre::new(self.context.linker.instantiate_pre(&component)?)?;
+        let component = ProxyMiddleware { pre };
+        self.middlewares.insert(name.clone(), component);
         Ok(())
     }
 
@@ -40,8 +72,22 @@ impl WasmExecutor {
         self.config.components.get(component_name)
     }
 
+    pub async fn proxy_execute(&mut self, name: &str) -> WasmicResult<()> {
+        let Some(proxy) = self.middlewares.get(name) else {
+            return Err(WasmicError::ComponentNotFound(name.to_string()));
+        };
+
+        let state = ComponentRunStates::new();
+        let mut store = Store::new(&self.context.engine, state);
+        let _proxy = proxy.pre.instantiate_async(&mut store).await?;
+
+        // todo: execute this;
+
+        Ok(())
+    }
+
     /// Get all tools from all components
-    pub fn get_all_tools(&self) -> Result<Vec<rmcp::model::Tool>> {
+    pub fn get_all_tools(&self) -> WasmicResult<Vec<rmcp::model::Tool>> {
         let mut all_tools = Vec::new();
 
         for (name, component) in &self.components {
@@ -65,7 +111,7 @@ impl WasmExecutor {
         &self,
         function_info: &FunctionInfo,
         named_args: &HashMap<String, serde_json::Value>,
-    ) -> Result<Vec<serde_json::Value>> {
+    ) -> WasmicResult<Vec<serde_json::Value>> {
         let mut positional_args = Vec::with_capacity(function_info.params.len());
 
         // Create a map of parameter names to their positions for quick lookup
@@ -78,7 +124,7 @@ impl WasmExecutor {
         // Check for missing required arguments
         for param_info in &function_info.params {
             if !named_args.contains_key(&param_info.name) {
-                return Err(WasiMcpError::InvalidArguments(format!(
+                return Err(WasmicError::InvalidArguments(format!(
                     "Missing required argument: '{}' (position: {})",
                     param_info.name, param_info.position
                 )));
@@ -88,7 +134,7 @@ impl WasmExecutor {
         // Check for extra arguments that aren't in the function signature
         for arg_name in named_args.keys() {
             if !param_positions.contains_key(arg_name.as_str()) {
-                return Err(WasiMcpError::InvalidArguments(format!(
+                return Err(WasmicError::InvalidArguments(format!(
                     "Unexpected argument: '{arg_name}'"
                 )));
             }
@@ -115,10 +161,10 @@ impl WasmExecutor {
         &mut self,
         tool_name: &str,
         arguments: HashMap<String, serde_json::Value>,
-    ) -> Result<Value> {
+    ) -> WasmicResult<Value> {
         let start_time = Instant::now();
         let Some((component_name, function_name)) = tool_name.split_once(".") else {
-            return Err(WasiMcpError::InvalidArguments(format!(
+            return Err(WasmicError::InvalidArguments(format!(
                 "Expected tool name in format 'component.function', got: {tool_name}",
             )));
         };
@@ -128,11 +174,11 @@ impl WasmExecutor {
             let component = self
                 .components
                 .get(component_name)
-                .ok_or_else(|| WasiMcpError::ComponentNotFound(component_name.to_string()))?;
+                .ok_or_else(|| WasmicError::ComponentNotFound(component_name.to_string()))?;
 
             component
                 .get_function_info(function_name)
-                .ok_or_else(|| WasiMcpError::FunctionNotFound(function_name.to_string()))?
+                .ok_or_else(|| WasmicError::FunctionNotFound(function_name.to_string()))?
                 .clone()
         };
 
@@ -147,10 +193,10 @@ impl WasmExecutor {
         let component = self
             .components
             .get_mut(component_name)
-            .ok_or_else(|| WasiMcpError::ComponentNotFound(component_name.to_string()))?;
+            .ok_or_else(|| WasmicError::ComponentNotFound(component_name.to_string()))?;
 
         let Some(func) = function_info.func else {
-            return Err(WasiMcpError::FunctionNotFound(function_info.name));
+            return Err(WasmicError::FunctionNotFound(function_info.name));
         };
 
         component.call_async(&func, &args, &mut results).await?;

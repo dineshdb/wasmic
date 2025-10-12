@@ -1,14 +1,14 @@
 use clap::Parser;
 use tracing::error;
-use wasmic::WasiMcpError;
+use wasmic::WasmicError;
 use wasmic::cli::{Cli, Commands};
 use wasmic::config::Config;
-use wasmic::error::Result;
+use wasmic::error::WasmicResult;
 use wasmic::server::{ServerManager, ServerMode};
 use wasmic::wasm::WasmContext;
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> WasmicResult<()> {
     dotenvy::dotenv().ok();
     let cli = Cli::parse();
 
@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
                 let port_str = parts[1..].join(":");
                 let port = port_str.parse().map_err(|_| {
                     error!("Error: Invalid port number in --http argument");
-                    WasiMcpError::InvalidArguments(
+                    WasmicError::InvalidArguments(
                         "Invalid port number in --http argument".to_string(),
                     )
                 })?;

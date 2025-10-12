@@ -1,11 +1,11 @@
-use crate::WasiMcpError;
+use crate::WasmicError;
 use crate::config::ComponentConfig;
 use crate::state::ComponentRunStates;
 use std::path::Path;
 use wasmtime_wasi::WasiCtxBuilder;
 
 impl TryFrom<&ComponentConfig> for ComponentRunStates {
-    type Error = WasiMcpError;
+    type Error = WasmicError;
 
     fn try_from(config: &ComponentConfig) -> std::result::Result<Self, Self::Error> {
         let mut builder = WasiCtxBuilder::new();
@@ -15,13 +15,13 @@ impl TryFrom<&ComponentConfig> for ComponentRunStates {
         if let Some(cwd_path) = &config.cwd {
             let path = Path::new(cwd_path);
             if !path.exists() {
-                return Err(WasiMcpError::InvalidArguments(format!(
+                return Err(WasmicError::InvalidArguments(format!(
                     "Working directory does not exist: {}",
                     cwd_path
                 )));
             }
             if !path.is_dir() {
-                return Err(WasiMcpError::InvalidArguments(format!(
+                return Err(WasmicError::InvalidArguments(format!(
                     "Working directory path is not a directory: {}",
                     cwd_path
                 )));
@@ -41,7 +41,7 @@ impl TryFrom<&ComponentConfig> for ComponentRunStates {
 
             // Check if the host path exists
             if !host_path.exists() {
-                return Err(WasiMcpError::InvalidArguments(format!(
+                return Err(WasmicError::InvalidArguments(format!(
                     "Host path does not exist: {}",
                     mount.host_path
                 )));
@@ -52,7 +52,7 @@ impl TryFrom<&ComponentConfig> for ComponentRunStates {
                 host_path
             } else {
                 host_path.parent().ok_or_else(|| {
-                    WasiMcpError::InvalidArguments(format!(
+                    WasmicError::InvalidArguments(format!(
                         "Cannot mount file without parent directory: {}",
                         mount.host_path
                     ))

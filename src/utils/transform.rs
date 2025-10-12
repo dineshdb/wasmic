@@ -1,10 +1,10 @@
-use crate::error::{Result, WasiMcpError};
+use crate::error::{WasmicError, WasmicResult};
 use serde_json::Value;
 use wasmtime::component::Val;
 
 /// Convert a serde_json::Value to a wasmtime::component::Val
 #[allow(unused)]
-fn to_wasm(json_value: &Value) -> Result<Val> {
+fn to_wasm(json_value: &Value) -> WasmicResult<Val> {
     to_wasm_with_type(json_value, None)
 }
 
@@ -12,7 +12,7 @@ fn to_wasm(json_value: &Value) -> Result<Val> {
 pub fn to_wasm_with_type(
     json_value: &Value,
     wasm_type: Option<&wasmtime::component::Type>,
-) -> Result<Val> {
+) -> WasmicResult<Val> {
     match json_value {
         Value::Null => Ok(Val::String("null".to_string())),
         Value::Bool(b) => Ok(Val::Bool(*b)),
@@ -25,12 +25,12 @@ pub fn to_wasm_with_type(
                             if u <= u8::MAX as u64 {
                                 Ok(Val::U8(u as u8))
                             } else {
-                                Err(WasiMcpError::InvalidArguments(format!(
+                                Err(WasmicError::InvalidArguments(format!(
                                     "Value {u} exceeds u8 range",
                                 )))
                             }
                         } else {
-                            Err(WasiMcpError::InvalidArguments(
+                            Err(WasmicError::InvalidArguments(
                                 "Expected unsigned integer for u8 type".to_string(),
                             ))
                         }
@@ -40,12 +40,12 @@ pub fn to_wasm_with_type(
                             if u <= u16::MAX as u64 {
                                 Ok(Val::U16(u as u16))
                             } else {
-                                Err(WasiMcpError::InvalidArguments(format!(
+                                Err(WasmicError::InvalidArguments(format!(
                                     "Value {u} exceeds u16 range",
                                 )))
                             }
                         } else {
-                            Err(WasiMcpError::InvalidArguments(
+                            Err(WasmicError::InvalidArguments(
                                 "Expected unsigned integer for u16 type".to_string(),
                             ))
                         }
@@ -55,12 +55,12 @@ pub fn to_wasm_with_type(
                             if u <= u32::MAX as u64 {
                                 Ok(Val::U32(u as u32))
                             } else {
-                                Err(WasiMcpError::InvalidArguments(format!(
+                                Err(WasmicError::InvalidArguments(format!(
                                     "Value {u} exceeds u32 range",
                                 )))
                             }
                         } else {
-                            Err(WasiMcpError::InvalidArguments(
+                            Err(WasmicError::InvalidArguments(
                                 "Expected unsigned integer for u32 type".to_string(),
                             ))
                         }
@@ -69,7 +69,7 @@ pub fn to_wasm_with_type(
                         if let Some(u) = n.as_u64() {
                             Ok(Val::U64(u))
                         } else {
-                            Err(WasiMcpError::InvalidArguments(
+                            Err(WasmicError::InvalidArguments(
                                 "Expected unsigned integer for u64 type".to_string(),
                             ))
                         }
@@ -79,12 +79,12 @@ pub fn to_wasm_with_type(
                             if i >= i8::MIN as i64 && i <= i8::MAX as i64 {
                                 Ok(Val::S8(i as i8))
                             } else {
-                                Err(WasiMcpError::InvalidArguments(format!(
+                                Err(WasmicError::InvalidArguments(format!(
                                     "Value {i} exceeds s8 range",
                                 )))
                             }
                         } else {
-                            Err(WasiMcpError::InvalidArguments(
+                            Err(WasmicError::InvalidArguments(
                                 "Expected signed integer for s8 type".to_string(),
                             ))
                         }
@@ -94,12 +94,12 @@ pub fn to_wasm_with_type(
                             if i >= i16::MIN as i64 && i <= i16::MAX as i64 {
                                 Ok(Val::S16(i as i16))
                             } else {
-                                Err(WasiMcpError::InvalidArguments(format!(
+                                Err(WasmicError::InvalidArguments(format!(
                                     "Value {i} exceeds s16 range",
                                 )))
                             }
                         } else {
-                            Err(WasiMcpError::InvalidArguments(
+                            Err(WasmicError::InvalidArguments(
                                 "Expected signed integer for s16 type".to_string(),
                             ))
                         }
@@ -109,12 +109,12 @@ pub fn to_wasm_with_type(
                             if i >= i32::MIN as i64 && i <= i32::MAX as i64 {
                                 Ok(Val::S32(i as i32))
                             } else {
-                                Err(WasiMcpError::InvalidArguments(format!(
+                                Err(WasmicError::InvalidArguments(format!(
                                     "Value {i} exceeds s32 range",
                                 )))
                             }
                         } else {
-                            Err(WasiMcpError::InvalidArguments(
+                            Err(WasmicError::InvalidArguments(
                                 "Expected signed integer for s32 type".to_string(),
                             ))
                         }
@@ -123,7 +123,7 @@ pub fn to_wasm_with_type(
                         if let Some(i) = n.as_i64() {
                             Ok(Val::S64(i))
                         } else {
-                            Err(WasiMcpError::InvalidArguments(
+                            Err(WasmicError::InvalidArguments(
                                 "Expected signed integer for s64 type".to_string(),
                             ))
                         }
@@ -132,7 +132,7 @@ pub fn to_wasm_with_type(
                         if let Some(f) = n.as_f64() {
                             Ok(Val::Float32(f as f32))
                         } else {
-                            Err(WasiMcpError::InvalidArguments(
+                            Err(WasmicError::InvalidArguments(
                                 "Expected float for f32 type".to_string(),
                             ))
                         }
@@ -141,7 +141,7 @@ pub fn to_wasm_with_type(
                         if let Some(f) = n.as_f64() {
                             Ok(Val::Float64(f))
                         } else {
-                            Err(WasiMcpError::InvalidArguments(
+                            Err(WasmicError::InvalidArguments(
                                 "Expected float for f64 type".to_string(),
                             ))
                         }
@@ -172,7 +172,7 @@ pub fn to_wasm_with_type(
         }
         Value::String(s) => Ok(Val::String(s.clone())),
         Value::Array(arr) => {
-            let wasm_values: Result<Vec<Val>> =
+            let wasm_values: WasmicResult<Vec<Val>> =
                 arr.iter().map(|v| to_wasm_with_type(v, None)).collect();
             Ok(Val::List(wasm_values?))
         }
@@ -194,7 +194,7 @@ pub fn to_wasm_with_type(
                         let wasm_val = to_wasm_with_type(field_value, Some(&field_type))?;
                         record_fields.push((field_name.to_string(), wasm_val));
                     } else {
-                        return Err(WasiMcpError::InvalidArguments(format!(
+                        return Err(WasmicError::InvalidArguments(format!(
                             "Missing required field: '{field_name}'",
                         )));
                     }
@@ -203,7 +203,7 @@ pub fn to_wasm_with_type(
                 // Check for extra fields that aren't in the expected record
                 for field_name in obj.keys() {
                     if !expected_fields.contains(&field_name.as_str()) {
-                        return Err(WasiMcpError::InvalidArguments(format!(
+                        return Err(WasmicError::InvalidArguments(format!(
                             "Unexpected field: '{field_name}'",
                         )));
                     }
@@ -212,7 +212,7 @@ pub fn to_wasm_with_type(
                 Ok(Val::Record(record_fields))
             } else {
                 // Fallback to original behavior for non-typed objects
-                let record_fields: Result<Vec<(String, Val)>> = obj
+                let record_fields: WasmicResult<Vec<(String, Val)>> = obj
                     .iter()
                     .map(|(key, value)| {
                         to_wasm_with_type(value, None).map(|wasm_val| (key.clone(), wasm_val))
@@ -225,7 +225,7 @@ pub fn to_wasm_with_type(
 }
 
 /// Convert a wasmtime::component::Val to a serde_json::Value
-pub fn wasm_to_json(wasm_value: &Val) -> Result<Value> {
+pub fn wasm_to_json(wasm_value: &Val) -> WasmicResult<Value> {
     match wasm_value {
         Val::Bool(b) => Ok(Value::Bool(*b)),
         Val::S8(i) => Ok(Value::Number(serde_json::Number::from(*i))),
@@ -245,7 +245,7 @@ pub fn wasm_to_json(wasm_value: &Val) -> Result<Value> {
         Val::Char(c) => Ok(Value::String(c.to_string())),
         Val::String(s) => Ok(Value::String(s.clone())),
         Val::List(vals) => {
-            let json_values: Result<Vec<Value>> = vals.iter().map(wasm_to_json).collect();
+            let json_values: WasmicResult<Vec<Value>> = vals.iter().map(wasm_to_json).collect();
             Ok(Value::Array(json_values?))
         }
         Val::Record(fields) => {
@@ -256,7 +256,7 @@ pub fn wasm_to_json(wasm_value: &Val) -> Result<Value> {
             Ok(Value::Object(obj))
         }
         Val::Tuple(vals) => {
-            let json_values: Result<Vec<Value>> = vals.iter().map(wasm_to_json).collect();
+            let json_values: WasmicResult<Vec<Value>> = vals.iter().map(wasm_to_json).collect();
             Ok(Value::Array(json_values?))
         }
         Val::Variant(name, value) => {
@@ -308,14 +308,15 @@ pub fn wasm_to_json(wasm_value: &Val) -> Result<Value> {
 }
 
 /// Convert WASM result values to JSON with proper formatting
-pub fn convert_wasm_results_to_json(wasm_results: &[Val]) -> Result<Value> {
+pub fn convert_wasm_results_to_json(wasm_results: &[Val]) -> WasmicResult<Value> {
     match wasm_results.len() {
         0 => Ok(Value::String(
             "Successfully executed (no return value)".to_string(),
         )),
         1 => wasm_to_json(&wasm_results[0]),
         _ => {
-            let json_results: Result<Vec<Value>> = wasm_results.iter().map(wasm_to_json).collect();
+            let json_results: WasmicResult<Vec<Value>> =
+                wasm_results.iter().map(wasm_to_json).collect();
             Ok(Value::Array(json_results?))
         }
     }
@@ -325,12 +326,12 @@ pub fn convert_wasm_results_to_json(wasm_results: &[Val]) -> Result<Value> {
 pub fn convert_args_to_wasm_values(
     arguments: &[serde_json::Value],
     function_info: &crate::wasm::FunctionInfo,
-) -> Result<Vec<wasmtime::component::Val>> {
+) -> WasmicResult<Vec<wasmtime::component::Val>> {
     let mut wasm_values = Vec::with_capacity(arguments.len());
 
     for (i, (arg, param_info)) in arguments.iter().zip(&function_info.params).enumerate() {
         let wasm_val = convert_json_to_wasm_value(arg, &param_info.wasm_type).map_err(|e| {
-            WasiMcpError::InvalidArguments(format!(
+            WasmicError::InvalidArguments(format!(
                 "Failed to convert argument '{}' at position {}: {}",
                 param_info.name, i, e
             ))
@@ -344,13 +345,13 @@ pub fn convert_args_to_wasm_values(
 fn convert_json_to_wasm_value(
     json_value: &serde_json::Value,
     wasm_type: &wasmtime::component::Type,
-) -> Result<wasmtime::component::Val> {
+) -> WasmicResult<wasmtime::component::Val> {
     match wasm_type {
         wasmtime::component::Type::Bool => {
             if let Some(b) = json_value.as_bool() {
                 Ok(wasmtime::component::Val::Bool(b))
             } else {
-                Err(WasiMcpError::InvalidArguments(format!(
+                Err(WasmicError::InvalidArguments(format!(
                     "Expected boolean, got: {json_value}",
                 )))
             }
@@ -359,7 +360,7 @@ fn convert_json_to_wasm_value(
             if let Some(s) = json_value.as_str() {
                 Ok(wasmtime::component::Val::String(s.to_string()))
             } else {
-                Err(WasiMcpError::UnexpectedExpected(
+                Err(WasmicError::UnexpectedExpected(
                     "string".to_string(),
                     json_value.to_string(),
                 ))
@@ -370,13 +371,13 @@ fn convert_json_to_wasm_value(
                 if (-128..=127).contains(&n) {
                     Ok(wasmtime::component::Val::S8(n as i8))
                 } else {
-                    Err(WasiMcpError::InvalidArguments(format!(
+                    Err(WasmicError::InvalidArguments(format!(
                         "Expected s8 (-128-127), got: {}",
                         n
                     )))
                 }
             } else {
-                Err(WasiMcpError::InvalidArguments(format!(
+                Err(WasmicError::InvalidArguments(format!(
                     "Expected s8, got: {}",
                     json_value
                 )))
@@ -387,13 +388,13 @@ fn convert_json_to_wasm_value(
                 if n <= 255 {
                     Ok(wasmtime::component::Val::U8(n as u8))
                 } else {
-                    Err(WasiMcpError::InvalidArguments(format!(
+                    Err(WasmicError::InvalidArguments(format!(
                         "Expected u8 (0-255), got: {}",
                         n
                     )))
                 }
             } else {
-                Err(WasiMcpError::InvalidArguments(format!(
+                Err(WasmicError::InvalidArguments(format!(
                     "Expected u8, got: {}",
                     json_value
                 )))
@@ -404,13 +405,13 @@ fn convert_json_to_wasm_value(
                 if (-32768..=32767).contains(&n) {
                     Ok(wasmtime::component::Val::S16(n as i16))
                 } else {
-                    Err(WasiMcpError::InvalidArguments(format!(
+                    Err(WasmicError::InvalidArguments(format!(
                         "Expected s16 (-32768-32767), got: {}",
                         n
                     )))
                 }
             } else {
-                Err(WasiMcpError::InvalidArguments(format!(
+                Err(WasmicError::InvalidArguments(format!(
                     "Expected s16, got: {}",
                     json_value
                 )))
@@ -421,13 +422,13 @@ fn convert_json_to_wasm_value(
                 if n <= 65535 {
                     Ok(wasmtime::component::Val::U16(n as u16))
                 } else {
-                    Err(WasiMcpError::InvalidArguments(format!(
+                    Err(WasmicError::InvalidArguments(format!(
                         "Expected u16 (0-65535), got: {}",
                         n
                     )))
                 }
             } else {
-                Err(WasiMcpError::InvalidArguments(format!(
+                Err(WasmicError::InvalidArguments(format!(
                     "Expected u16, got: {}",
                     json_value
                 )))
@@ -438,13 +439,13 @@ fn convert_json_to_wasm_value(
                 if (-2147483648..=2147483647).contains(&n) {
                     Ok(wasmtime::component::Val::S32(n as i32))
                 } else {
-                    Err(WasiMcpError::InvalidArguments(format!(
+                    Err(WasmicError::InvalidArguments(format!(
                         "Expected s32 (-2147483648-2147483647), got: {}",
                         n
                     )))
                 }
             } else {
-                Err(WasiMcpError::InvalidArguments(format!(
+                Err(WasmicError::InvalidArguments(format!(
                     "Expected s32, got: {}",
                     json_value
                 )))
@@ -455,13 +456,13 @@ fn convert_json_to_wasm_value(
                 if n <= 4294967295 {
                     Ok(wasmtime::component::Val::U32(n as u32))
                 } else {
-                    Err(WasiMcpError::InvalidArguments(format!(
+                    Err(WasmicError::InvalidArguments(format!(
                         "Expected u32 (0-4294967295), got: {}",
                         n
                     )))
                 }
             } else {
-                Err(WasiMcpError::InvalidArguments(format!(
+                Err(WasmicError::InvalidArguments(format!(
                     "Expected u32, got: {}",
                     json_value
                 )))
@@ -471,7 +472,7 @@ fn convert_json_to_wasm_value(
             if let Some(n) = json_value.as_i64() {
                 Ok(wasmtime::component::Val::S64(n))
             } else {
-                Err(WasiMcpError::InvalidArguments(format!(
+                Err(WasmicError::InvalidArguments(format!(
                     "Expected s64, got: {}",
                     json_value
                 )))
@@ -481,7 +482,7 @@ fn convert_json_to_wasm_value(
             if let Some(n) = json_value.as_u64() {
                 Ok(wasmtime::component::Val::U64(n))
             } else {
-                Err(WasiMcpError::InvalidArguments(format!(
+                Err(WasmicError::InvalidArguments(format!(
                     "Expected u64, got: {}",
                     json_value
                 )))
@@ -491,7 +492,7 @@ fn convert_json_to_wasm_value(
             if let Some(n) = json_value.as_f64() {
                 Ok(wasmtime::component::Val::Float32(n as f32))
             } else {
-                Err(WasiMcpError::InvalidArguments(format!(
+                Err(WasmicError::InvalidArguments(format!(
                     "Expected f32, got: {}",
                     json_value
                 )))
@@ -501,7 +502,7 @@ fn convert_json_to_wasm_value(
             if let Some(n) = json_value.as_f64() {
                 Ok(wasmtime::component::Val::Float64(n))
             } else {
-                Err(WasiMcpError::InvalidArguments(format!(
+                Err(WasmicError::InvalidArguments(format!(
                     "Expected f64, got: {}",
                     json_value
                 )))

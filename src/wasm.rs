@@ -1,5 +1,5 @@
 use crate::{
-    ComponentRunStates, WasiMcpError, error::Result, utils::wasm::convert_wasm_type_to_json,
+    ComponentRunStates, WasmicError, error::WasmicResult, utils::wasm::convert_wasm_type_to_json,
 };
 use rmcp::model::Tool;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
@@ -261,7 +261,7 @@ impl WasmComponent {
         engine: Engine,
         config: crate::config::ComponentConfig,
         linker: &mut Linker<ComponentRunStates>,
-    ) -> Result<Self> {
+    ) -> WasmicResult<Self> {
         let start_time = std::time::Instant::now();
         let path = PathBuf::from(config.path.as_deref().expect("path should be provided"));
         let component = Component::from_file(&engine, &path)?;
@@ -310,7 +310,7 @@ impl WasmComponent {
     fn extract_component_info(
         engine: &Engine,
         component: &Component,
-    ) -> Result<(
+    ) -> WasmicResult<(
         HashMap<String, InterfaceInfo>,
         HashMap<String, FunctionInfo>,
     )> {
@@ -349,22 +349,22 @@ impl WasmComponent {
         store: &mut Store<ComponentRunStates>,
         instance: &Instance,
         func_name: &str,
-    ) -> Result<Func> {
+    ) -> WasmicResult<Func> {
         if !func_name.contains('.') {
             // For standalone functions, get the function directly from the top level
             let func_idx = instance
                 .get_export_index(&mut *store, None, func_name)
-                .ok_or_else(|| WasiMcpError::FunctionNotFound(func_name.to_string()))?;
+                .ok_or_else(|| WasmicError::FunctionNotFound(func_name.to_string()))?;
 
             instance.get_func(&mut *store, func_idx).ok_or_else(|| {
-                WasiMcpError::Execution("Failed to get function reference".to_string())
+                WasmicError::Execution("Failed to get function reference".to_string())
             })
         } else {
             // For interface functions, parse the interface and function names
             let (interface, function) = match func_name.rsplit_once('.') {
                 Some((interface, function)) => (interface, function),
                 None => {
-                    return Err(WasiMcpError::Execution(format!(
+                    return Err(WasmicError::Execution(format!(
                         "Invalid function name format: {func_name}",
                     )));
                 }
@@ -373,15 +373,15 @@ impl WasmComponent {
             // Get interface index
             let interface_idx = instance
                 .get_export_index(&mut *store, None, interface)
-                .ok_or_else(|| WasiMcpError::InterfaceNotFound(interface.to_string()))?;
+                .ok_or_else(|| WasmicError::InterfaceNotFound(interface.to_string()))?;
 
             // Get function index
             let func_idx = instance
                 .get_export_index(&mut *store, Some(&interface_idx), function)
-                .ok_or_else(|| WasiMcpError::FunctionNotFound(format!("{interface}.{function}")))?;
+                .ok_or_else(|| WasmicError::FunctionNotFound(format!("{interface}.{function}")))?;
 
             instance.get_func(&mut *store, func_idx).ok_or_else(|| {
-                WasiMcpError::Execution("Failed to get function reference".to_string())
+                WasmicError::Execution("Failed to get function reference".to_string())
             })
         }
     }
@@ -391,7 +391,7 @@ impl WasmComponent {
         &self,
         engine: &Engine,
         component_description: Option<&str>,
-    ) -> Result<Vec<Tool>> {
+    ) -> WasmicResult<Vec<Tool>> {
         let mut tools = Vec::new();
         let ty = self.component.component_type();
         let description = component_description.unwrap_or_default().to_string();
@@ -438,7 +438,7 @@ impl WasmComponent {
         func: &Func,
         args: &[Val],
         results: &mut [Val],
-    ) -> Result<()> {
+    ) -> WasmicResult<()> {
         func.call_async(&mut self.store, args, results).await?;
         Ok(())
     }

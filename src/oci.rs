@@ -1,5 +1,5 @@
-use crate::WasiMcpError;
-use crate::error::Result;
+use crate::WasmicError;
+use crate::error::WasmicResult;
 use oci_distribution::Reference;
 use oci_distribution::client::{Client, ClientConfig, ClientProtocol};
 use oci_distribution::secrets::RegistryAuth;
@@ -17,7 +17,7 @@ pub struct OciManager {
 
 impl OciManager {
     /// Create a new OCI manager with XDG cache directory
-    pub fn new() -> Result<Self> {
+    pub fn new() -> WasmicResult<Self> {
         let cache_dir = Self::get_cache_dir()?;
         fs::create_dir_all(&cache_dir)?;
 
@@ -32,10 +32,10 @@ impl OciManager {
     }
 
     /// Get XDG cache directory for wasmic
-    fn get_cache_dir() -> Result<PathBuf> {
+    fn get_cache_dir() -> WasmicResult<PathBuf> {
         let cache_dir = dirs::cache_dir()
             .ok_or_else(|| {
-                WasiMcpError::InvalidArguments("Could not determine cache directory".to_string())
+                WasmicError::InvalidArguments("Could not determine cache directory".to_string())
             })?
             .join("wasmic");
 
@@ -44,11 +44,11 @@ impl OciManager {
 
     /// Download and cache a WASM component from OCI registry with optimized caching
     #[instrument(level = "debug", skip(self), fields(reference, duration_ms))]
-    pub async fn download_wasm_component(&self, reference: &str) -> Result<PathBuf> {
+    pub async fn download_wasm_component(&self, reference: &str) -> WasmicResult<PathBuf> {
         let start_time = std::time::Instant::now();
 
         let parsed_ref = Reference::try_from(reference).map_err(|e| {
-            WasiMcpError::InvalidArguments(format!("Invalid OCI reference '{reference}': {e}"))
+            WasmicError::InvalidArguments(format!("Invalid OCI reference '{reference}': {e}"))
         })?;
 
         // Create a unique filename based on the reference and digest
@@ -76,7 +76,7 @@ impl OciManager {
             )
             .await
             .map_err(|e| {
-                WasiMcpError::InvalidArguments(format!(
+                WasmicError::InvalidArguments(format!(
                     "Failed to pull OCI artifact '{reference}': {e}"
                 ))
             })?;
@@ -90,7 +90,7 @@ impl OciManager {
                     || layer.media_type == "application/wasm"
             })
             .ok_or_else(|| {
-                WasiMcpError::InvalidArguments("No WASM layer found in OCI artifact".to_string())
+                WasmicError::InvalidArguments("No WASM layer found in OCI artifact".to_string())
             })?;
 
         // Write the WASM file to cache
@@ -106,14 +106,14 @@ impl OciManager {
         &self,
         component_path: Option<&str>,
         component_oci: Option<&str>,
-    ) -> Result<PathBuf> {
+    ) -> WasmicResult<PathBuf> {
         match (component_path, component_oci) {
             (Some(path), None) => Ok(PathBuf::from(path)),
             (None, Some(oci_ref)) => self.download_wasm_component(oci_ref).await,
-            (Some(_), Some(_)) => Err(WasiMcpError::InvalidArguments(
+            (Some(_), Some(_)) => Err(WasmicError::InvalidArguments(
                 "Cannot specify both 'path' and 'oci' for the same component".to_string(),
             )),
-            (None, None) => Err(WasiMcpError::InvalidArguments(
+            (None, None) => Err(WasmicError::InvalidArguments(
                 "Must specify either 'path' or 'oci' for component".to_string(),
             )),
         }
