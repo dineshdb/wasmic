@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 use clap::Parser;
 use tracing::error;
 use wasmic::WasiMcpError;

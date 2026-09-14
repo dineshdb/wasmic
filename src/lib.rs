@@ -2,6 +2,8 @@
 //!
 //! This library provides functionality for managing WASI components and running them as MCP servers.
 
+#![recursion_limit = "256"]
+
 pub mod cli;
 pub mod config;
 pub mod error;

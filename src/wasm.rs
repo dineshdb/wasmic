@@ -2,7 +2,7 @@ use crate::{
     ComponentRunStates, WasiMcpError, error::Result, utils::wasm::convert_wasm_type_to_json,
 };
 use rmcp::model::Tool;
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::PathBuf};
 use tracing::instrument;
 use wasmtime::{
     Engine, Store,
@@ -130,17 +130,14 @@ impl From<&FunctionInfo> for Tool {
         for (i, result_type) in results.iter().enumerate() {
             properties.insert(format!("result_{}", i + 1), result_type.clone());
         }
-        Tool {
-            name: tool_name.into(),
-            title: None,
+        Tool::new_with_raw(
+            tool_name,
             description,
-            input_schema: Arc::new(input_schema.as_object().cloned().unwrap_or_default()),
-            output_schema: Some(Arc::new(
-                output_schema.as_object().cloned().unwrap_or_default(),
-            )),
-            annotations: None,
-            icons: None,
-        }
+            std::sync::Arc::new(input_schema.as_object().cloned().unwrap_or_default()),
+        )
+        .with_raw_output_schema(std::sync::Arc::new(
+            output_schema.as_object().cloned().unwrap_or_default(),
+        ))
     }
 }
 

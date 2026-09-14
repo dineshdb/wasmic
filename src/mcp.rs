@@ -8,9 +8,9 @@ use rmcp::transport::streamable_http_server::{
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     model::{
-        CallToolRequestParam, CallToolResult, Content, GetPromptRequestParam, GetPromptResult,
-        ListPromptsResult, ListToolsResult, Prompt as McpPrompt, PromptMessage,
-        PromptMessageContent, PromptMessageRole, ServerInfo,
+        CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
+        GetPromptRequestParams, GetPromptResponse, GetPromptResult, ListPromptsResult,
+        ListToolsResult, Prompt as McpPrompt, PromptMessage, Role, ServerInfo,
     },
     service::{RequestContext, RoleServer},
 };
@@ -69,34 +69,27 @@ impl ServerHandler for WasmMcpServer {
     /// Get server information
     fn get_info(&self) -> ServerInfo {
         tracing::debug!("Serving server info");
-        ServerInfo {
-            protocol_version: rmcp::model::ProtocolVersion::V_2024_11_05,
-            capabilities: ServerCapabilities {
-                tools: Some(rmcp::model::ToolsCapability { list_changed: Some(true) }),
-                prompts: Some(rmcp::model::PromptsCapability { list_changed: Some(true) }),
-                ..Default::default()
-            },
-            server_info: rmcp::model::Implementation {
-                name: "wasmic".into(),
-                version: "0.1.0".into(),
-                title: None,
-                website_url: None,
-                icons: None,
-            },
-            instructions: Some(
+        let capabilities = ServerCapabilities::builder()
+            .enable_tools()
+            .enable_tool_list_changed()
+            .enable_prompts()
+            .enable_prompts_list_changed()
+            .build();
+        ServerInfo::new(capabilities)
+            .with_protocol_version(rmcp::model::ProtocolVersion::V_2024_11_05)
+            .with_server_info(rmcp::model::Implementation::new("wasmic", "0.2.0"))
+            .with_instructions(
                 "This server exposes WASM component functions as MCP tools. \
                 Use the execute_wasm_tool function to call specific WASM functions. \
                 The server supports named arguments and proper argument mapping for better usability. \
-                Arguments should be provided as a JSON object with parameter names as keys."
-                    .into(),
-            ),
-        }
+                Arguments should be provided as a JSON object with parameter names as keys.",
+            )
     }
 
     /// List available tools
     async fn list_tools(
         &self,
-        _params: Option<rmcp::model::PaginatedRequestParam>,
+        _params: Option<rmcp::model::PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> std::result::Result<ListToolsResult, McpError> {
         let tools = self.executor.lock().await.get_all_tools().map_err(|e| {
@@ -104,18 +97,15 @@ impl ServerHandler for WasmMcpServer {
             McpError::internal_error(format!("Failed to create tools: {e}"), None)
         })?;
 
-        Ok(ListToolsResult {
-            tools,
-            next_cursor: None,
-        })
+        Ok(ListToolsResult::with_all_items(tools))
     }
 
     /// Call a tool (execute WASM function)
     async fn call_tool(
         &self,
-        params: CallToolRequestParam,
+        params: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> std::result::Result<CallToolResult, McpError> {
+    ) -> std::result::Result<CallToolResponse, McpError> {
         let arguments_map = params.arguments.unwrap_or_default();
         let arguments: HashMap<String, serde_json::Value> = arguments_map.into_iter().collect();
 
@@ -131,49 +121,41 @@ impl ServerHandler for WasmMcpServer {
             McpError::internal_error(format!("Failed to serialize result: {e}"), None)
         })?;
         debug!("Tool result: {content}");
-        Ok(CallToolResult::success(vec![Content::text(content)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(content)]).into())
     }
 
     /// List available prompts
     async fn list_prompts(
         &self,
-        _params: Option<rmcp::model::PaginatedRequestParam>,
+        _params: Option<rmcp::model::PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> std::result::Result<ListPromptsResult, McpError> {
         let mut prompts = Vec::new();
 
         for (prompt_id, prompt) in &self.config.prompts {
-            prompts.push(McpPrompt {
-                name: prompt_id.clone(),
-                description: Some(prompt.description.clone()),
-                arguments: Some(Vec::new()), // Static prompts with no arguments
-                title: None,
-                icons: None,
-            });
+            prompts.push(McpPrompt::new(
+                prompt_id.clone(),
+                Some(prompt.description.clone()),
+                Some(Vec::new()), // Static prompts with no arguments
+            ));
         }
 
-        Ok(ListPromptsResult {
-            prompts,
-            next_cursor: None,
-        })
+        Ok(ListPromptsResult::with_all_items(prompts))
     }
 
     /// Get a specific prompt
     async fn get_prompt(
         &self,
-        params: GetPromptRequestParam,
+        params: GetPromptRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> std::result::Result<GetPromptResult, McpError> {
+    ) -> std::result::Result<GetPromptResponse, McpError> {
         if let Some(prompt) = self.config.prompts.get(&params.name) {
-            return Ok(GetPromptResult {
-                description: Some(prompt.description.clone()),
-                messages: vec![PromptMessage {
-                    role: PromptMessageRole::User,
-                    content: PromptMessageContent::Text {
-                        text: prompt.content.clone(),
-                    },
-                }],
-            });
+            return Ok(GetPromptResult::new(vec![PromptMessage::new_text(
+                Role::User,
+                prompt.content.clone(),
+            )])
+            .with_description(prompt.description.clone())
+            .into());
         }
 
         Err(McpError::invalid_params(
